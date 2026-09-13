@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import {
+  Users,
   LayoutDashboard,
   FileText,
   ShoppingCart,
@@ -12,7 +13,6 @@ import {
   User,
   HelpCircle,
   LogOut,
-  ShieldAlert,
   Menu,
 } from 'lucide-react';
 
@@ -28,18 +28,20 @@ export const DashboardLayout: React.FC = () => {
 
   const navItems = [
     { label: 'Dashboard Overview', path: '/dashboard', icon: LayoutDashboard, code: '01' },
-    { label: 'Bank Statement Converter', path: '/dashboard/bank-converter', icon: FileText, code: '02' },
-    { label: 'E-Commerce GSTR-1 Engine', path: '/dashboard/ecommerce-gstr1', icon: ShoppingCart, code: '03' },
-    { label: 'Files Archive', path: '/dashboard/files', icon: FolderOpen, code: '04' },
-    { label: 'Reports Output', path: '/dashboard/reports', icon: FileSpreadsheet, code: '05' },
-    { label: 'Subscription & Billing', path: '/dashboard/subscription', icon: CreditCard, code: '06' },
-    { label: 'Profile Settings', path: '/dashboard/profile', icon: User, code: '07' },
-    { label: 'Help Desk', path: '/dashboard/support', icon: HelpCircle, code: '08' },
+    { label: 'Client Management', path: '/clients', icon: Users, code: '02' },
+    { label: 'Bank Statement Converter', path: '/dashboard/bank-converter', icon: FileText, code: '03' },
+    { label: 'E-Commerce GSTR-1 Engine', path: '/dashboard/ecommerce-gstr1', icon: ShoppingCart, code: '04' },
+    { label: 'Files Archive', path: '/dashboard/files', icon: FolderOpen, code: '05' },
+    { label: 'Reports Output', path: '/dashboard/reports', icon: FileSpreadsheet, code: '06' },
+    { label: 'Subscription & Billing', path: '/dashboard/subscription', icon: CreditCard, code: '07' },
+    { label: 'Profile Settings', path: '/dashboard/profile', icon: User, code: '08' },
+    { label: 'Help Desk', path: '/dashboard/support', icon: HelpCircle, code: '09' },
   ];
 
   const handleLogout = () => {
     localStorage.removeItem('gst_token');
     localStorage.removeItem('gst_user');
+    localStorage.removeItem('gst_admin_authenticated');
     navigate('/sign-in');
   };
 
@@ -78,16 +80,7 @@ export const DashboardLayout: React.FC = () => {
         </div>
 
         <div className="p-4 border-t border-[#E5E5E5] bg-white space-y-3">
-          <Link to="/admin" className="block">
-            <div className="p-2.5 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg flex items-center justify-between text-xs font-mono font-bold text-black hover:border-black transition-colors cursor-pointer">
-              <span className="flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-black" /> ADMIN CONSOLE
-              </span>
-              <span className="text-[10px] text-[#888888]">→</span>
-            </div>
-          </Link>
-
-          <div className="flex items-center justify-between pt-1 border-t border-[#E5E5E5]">
+          <div className="flex items-center justify-between pt-1">
             <div className="flex items-center gap-2.5 overflow-hidden">
               <div className="w-7 h-7 rounded bg-black text-white font-mono font-bold text-xs flex items-center justify-center shrink-0">
                 {storedUser.name.substring(0, 2).toUpperCase()}

@@ -5,6 +5,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\BankStatementController;
 use App\Http\Controllers\EcommerceGstr1Controller;
+use App\Http\Controllers\ClientController;
 use App\Http\Controllers\FileManagerController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\AdminController;
@@ -36,6 +37,7 @@ Route::prefix('bank-statements')->group(function () {
     Route::get('/banks', [BankStatementController::class, 'getBanks']);
     Route::post('/process', [BankStatementController::class, 'processStatement']);
     Route::post('/export-csv', [BankStatementController::class, 'exportCsv']);
+    Route::post('/export-excel', [BankStatementController::class, 'exportExcel']);
     Route::post('/export-xml', [BankStatementController::class, 'exportTallyXml']);
 });
 
@@ -45,6 +47,16 @@ Route::prefix('ecommerce')->group(function () {
     Route::post('/process', [EcommerceGstr1Controller::class, 'processReport']);
     Route::post('/export-json', [EcommerceGstr1Controller::class, 'exportGstr1Json']);
     Route::post('/export-tally-xml', [EcommerceGstr1Controller::class, 'exportGstr1TallyXml']);
+});
+
+// Client Management System
+Route::prefix('clients')->group(function () {
+    Route::get('/', [ClientController::class, 'index']);
+    Route::post('/', [ClientController::class, 'store']);
+    Route::post('/bulk-upload', [ClientController::class, 'bulkUpload']);
+    Route::get('/{id}', [ClientController::class, 'show']);
+    Route::put('/{id}', [ClientController::class, 'update']);
+    Route::delete('/{id}', [ClientController::class, 'destroy']);
 });
 
 // File Management

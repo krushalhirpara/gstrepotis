@@ -7,9 +7,23 @@ import { ChevronDown, Menu, ArrowRight } from 'lucide-react';
 export const Header: React.FC = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isProductsOpen, setIsProductsOpen] = useState(false);
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const location = useLocation();
 
-  const isDashboard = location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/admin');
+  const token = localStorage.getItem('gst_token');
+  const storedUserRaw = localStorage.getItem('gst_user');
+  const user = storedUserRaw ? JSON.parse(storedUserRaw) : null;
+  const isLoggedIn = !!token && !!user;
+
+  const handleLogout = () => {
+    localStorage.removeItem('gst_token');
+    localStorage.removeItem('gst_user');
+    localStorage.removeItem('gst_admin_authenticated');
+    setIsUserDropdownOpen(false);
+    window.location.href = '/sign-in';
+  };
+
+  const isDashboard = ['/dashboard', '/admin', '/pdftotally', '/clients'].some(path => location.pathname.startsWith(path));
 
   if (isDashboard) return null;
 
@@ -18,7 +32,7 @@ export const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex items-center justify-between">
         {/* Logo Left */}
         <Link to="/" className="flex items-center group">
-          <img src="/gstrepotis.png" alt="GST Suite Logo" className="h-12 md:h-14 w-auto object-contain py-1 drop-shadow-xs transition-transform hover:scale-105" />
+          <img src="/gstrepotis.png" alt="GST Suite Logo" className="h-8 md:h-[38px] w-auto object-contain drop-shadow-xs transition-transform hover:scale-105" />
         </Link>
 
         {/* Navigation Center */}
@@ -64,16 +78,57 @@ export const Header: React.FC = () => {
 
         {/* Actions Right */}
         <div className="hidden md:flex items-center gap-3">
-          <Link to="/sign-in">
-            <Button variant="outline" size="sm">
-              Sign In
-            </Button>
-          </Link>
-          <Link to="/sign-up">
-            <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
-              Start Free
-            </Button>
-          </Link>
+          {isLoggedIn ? (
+            <>
+              <div className="relative flex items-center">
+                <button
+                  onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                  className="flex items-center gap-2 mr-2 cursor-pointer hover:opacity-85 transition-opacity py-2 focus:outline-none"
+                >
+                  <div className="w-8 h-8 rounded bg-black text-white font-mono font-bold text-xs flex items-center justify-center">
+                    {user.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <span className="text-sm font-bold text-[#111111]">{user.name}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-[#555555] transition-transform duration-200 ${isUserDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isUserDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-[#E5E5E5] rounded-xl shadow-xl p-2 z-50 animate-in fade-in duration-150">
+                    <Link
+                      to="/dashboard/profile"
+                      onClick={() => setIsUserDropdownOpen(false)}
+                      className="block w-full text-left px-3 py-2 text-xs font-semibold text-[#111111] hover:bg-[#F7F7F7] rounded-lg transition-colors"
+                    >
+                      Profile
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="block w-full text-left px-3 py-2 text-xs font-semibold text-[#DC2626] hover:bg-red-50 rounded-lg transition-colors mt-0.5 cursor-pointer"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+              <Link to="/dashboard">
+                <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
+                  Dashboard
+                </Button>
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link to="/sign-in">
+                <Button variant="outline" size="sm">
+                  Sign In
+                </Button>
+              </Link>
+              <Link to="/sign-up">
+                <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
+                  Start Free
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
 
         <button
@@ -111,16 +166,37 @@ export const Header: React.FC = () => {
           </Link>
 
           <div className="pt-6 flex flex-col gap-3">
-            <Link to="/sign-in" onClick={() => setIsMobileOpen(false)}>
-              <Button variant="outline" className="w-full">
-                Sign In
-              </Button>
-            </Link>
-            <Link to="/sign-up" onClick={() => setIsMobileOpen(false)}>
-              <Button variant="primary" className="w-full">
-                Start Free Trial
-              </Button>
-            </Link>
+            {isLoggedIn ? (
+              <>
+                <div className="flex items-center gap-3 p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg mb-2">
+                  <div className="w-10 h-10 rounded bg-black text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">
+                    {user.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div className="truncate">
+                    <p className="text-sm font-bold text-[#111111] truncate">{user.name}</p>
+                    <p className="text-xs text-[#555555] truncate">{user.email}</p>
+                  </div>
+                </div>
+                <Link to="/dashboard" onClick={() => setIsMobileOpen(false)}>
+                  <Button variant="primary" className="w-full">
+                    Go to Dashboard
+                  </Button>
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/sign-in" onClick={() => setIsMobileOpen(false)}>
+                  <Button variant="outline" className="w-full">
+                    Sign In
+                  </Button>
+                </Link>
+                <Link to="/sign-up" onClick={() => setIsMobileOpen(false)}>
+                  <Button variant="primary" className="w-full">
+                    Start Free Trial
+                  </Button>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </Drawer>

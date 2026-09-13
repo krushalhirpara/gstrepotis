@@ -19,36 +19,22 @@ class SubscriptionController extends Controller
 
     public function getCurrentSubscription(Request $request)
     {
+        $bankUsed = DB::table('bank_statements')->count();
+        $ecomUsed = DB::table('marketplace_files')->count();
+
         return response()->json([
             'current_plan' => [
-                'name' => 'Professional Plan',
-                'slug' => 'professional',
-                'price_monthly' => 999.00,
+                'name' => 'Free Trial',
+                'slug' => 'free-trial',
+                'price_monthly' => 0.00,
                 'status' => 'active',
-                'current_period_end' => date('Y-m-d', strtotime('+24 days')),
-                'bank_statements_used' => 38,
-                'bank_statements_limit' => 200,
-                'ecommerce_reports_used' => 14,
-                'ecommerce_reports_limit' => 100,
+                'current_period_end' => date('Y-m-d', strtotime('+14 days')),
+                'bank_statements_used' => $bankUsed,
+                'bank_statements_limit' => 1,
+                'ecommerce_reports_used' => $ecomUsed,
+                'ecommerce_reports_limit' => 1,
             ],
-            'billing_history' => [
-                [
-                    'id' => 'PAY-904821',
-                    'date' => date('Y-m-d', strtotime('-6 days')),
-                    'amount' => '₹999.00',
-                    'status' => 'Success',
-                    'method' => 'Razorpay (UPI)',
-                    'invoice_url' => '#',
-                ],
-                [
-                    'id' => 'PAY-810294',
-                    'date' => date('Y-m-d', strtotime('-36 days')),
-                    'amount' => '₹999.00',
-                    'status' => 'Success',
-                    'method' => 'Razorpay (Card)',
-                    'invoice_url' => '#',
-                ],
-            ],
+            'billing_history' => [],
         ]);
     }
 

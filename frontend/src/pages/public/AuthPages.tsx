@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input, Select } from '../../components/ui/Input';
@@ -189,6 +189,8 @@ export const SignUpPage: React.FC = () => {
 
   const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
 
+  const location = useLocation();
+
   // Redirect logged in user
   useEffect(() => {
     const token = localStorage.getItem('gst_token');
@@ -196,6 +198,22 @@ export const SignUpPage: React.FC = () => {
       navigate('/welcome', { replace: true });
     }
   }, [navigate]);
+
+  // Handle location state for resumed verification
+  useEffect(() => {
+    const locState = location.state as { userId?: number; step?: string; maskedDestination?: string } | null;
+    if (locState?.userId) {
+      setUserId(locState.userId);
+      if (locState.step === '03_mobile_verification') {
+        setStep(3);
+      } else {
+        setStep(2);
+      }
+      if (locState.maskedDestination) {
+        setMaskedDestination(locState.maskedDestination);
+      }
+    }
+  }, [location.state]);
 
   // Cooldown timer countdown effect
   useEffect(() => {
@@ -317,7 +335,7 @@ export const SignUpPage: React.FC = () => {
               mapped[key] = Array.isArray(data.errors[key]) ? data.errors[key][0] : data.errors[key];
             });
             setFieldErrors(mapped);
-            setError('');
+            setError(data.message && data.message !== 'Validation failed' ? data.message : '');
           } else if (data.code === 'OTP_EMAIL_DELIVERY_FAILED' || data.delivery_failed) {
             setError(data.message || 'Unable to send verification code. Please try again.');
             setFieldErrors({});
@@ -332,7 +350,7 @@ export const SignUpPage: React.FC = () => {
         setUserId(data.user_id);
         setMaskedDestination(data.masked_destination);
         setStep(2);
-        setCooldown(60);
+        setCooldown(data.cooldown_seconds || 30);
         setOtpValues(Array(6).fill(''));
       })
       .catch(() => {
@@ -367,11 +385,14 @@ export const SignUpPage: React.FC = () => {
           return;
         }
 
-        // Move to Mobile Verification
-        setMaskedDestination(data.masked_destination);
-        setStep(3);
-        setCooldown(60);
-        setOtpValues(Array(6).fill(''));
+        if (data.step === '04_account_ready' || data.account_status === 'active') {
+          setStep(4);
+        } else {
+          setMaskedDestination(data.masked_destination);
+          setStep(3);
+          setCooldown(data.cooldown_seconds || 30);
+          setOtpValues(Array(6).fill(''));
+        }
       })
       .catch(() => {
         setIsLoading(false);
@@ -443,7 +464,7 @@ export const SignUpPage: React.FC = () => {
         }
 
         setMaskedDestination(data.masked_destination);
-        setCooldown(data.cooldown_seconds || 60);
+        setCooldown(data.cooldown_seconds || 30);
         setOtpValues(Array(6).fill(''));
         setEditingDestination(false);
         setNewDestinationInput('');
@@ -497,7 +518,11 @@ export const SignUpPage: React.FC = () => {
                   label="EMAIL ADDRESS"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: '' }));
+                    if (error) setError('');
+                  }}
                   placeholder="rajesh@ca-firm.com"
                   leftIcon={<Mail className="w-4 h-4 text-[#555555]" />}
                   error={fieldErrors.email}
@@ -505,7 +530,11 @@ export const SignUpPage: React.FC = () => {
                 <Input
                   label="MOBILE NUMBER"
                   value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
+                  onChange={(e) => {
+                    setMobile(e.target.value);
+                    if (fieldErrors.mobile) setFieldErrors((prev) => ({ ...prev, mobile: '' }));
+                    if (error) setError('');
+                  }}
                   placeholder="+91 9876543210"
                   leftIcon={<Phone className="w-4 h-4 text-[#555555]" />}
                   error={fieldErrors.mobile}

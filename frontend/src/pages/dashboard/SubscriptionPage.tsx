@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
@@ -8,13 +8,43 @@ import { Download } from 'lucide-react';
 
 export const SubscriptionPage: React.FC = () => {
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('business');
+  const [selectedPlan, setSelectedPlan] = useState('professional');
+  const [subscription, setSubscription] = useState({
+    name: 'Free Trial',
+    slug: 'free-trial',
+    status: 'Active',
+    renews: '14 days trial',
+    bankUsed: 0,
+    bankLimit: 1 as number | string,
+    ecomUsed: 0,
+    ecomLimit: 1 as number | string,
+  });
 
   const plans = [
     { slug: 'professional', name: 'Professional', price: '₹999/mo', bankLimit: 200, ecomLimit: 100 },
     { slug: 'business', name: 'Business', price: '₹2,499/mo', bankLimit: 1000, ecomLimit: 500 },
     { slug: 'enterprise', name: 'Enterprise', price: '₹4,999/mo', bankLimit: 'Unlimited', ecomLimit: 'Unlimited' },
   ];
+
+  useEffect(() => {
+    fetch('/api/subscription/current')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.current_plan) {
+          setSubscription({
+            name: data.current_plan.name,
+            slug: data.current_plan.slug,
+            status: data.current_plan.status,
+            renews: `Renews on ${data.current_plan.current_period_end}`,
+            bankUsed: data.current_plan.bank_statements_used,
+            bankLimit: data.current_plan.bank_statements_limit,
+            ecomUsed: data.current_plan.ecommerce_reports_used,
+            ecomLimit: data.current_plan.ecommerce_reports_limit,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleRazorpayPayment = () => {
     fetch('/api/subscription/create-order', {
@@ -24,15 +54,31 @@ export const SubscriptionPage: React.FC = () => {
     })
       .then((res) => res.json())
       .then((data) => {
-        alert(`Razorpay Order Created: ${data.order_id}\nAmount: ₹${data.amount / 100}\nKey ID: ${data.key_id}`);
+        alert(`Plan Upgrade Successful: ${data.plan?.name || selectedPlan} activated!`);
         setIsUpgradeOpen(false);
+        const p = plans.find((x) => x.slug === selectedPlan);
+        if (p) {
+          setSubscription((prev) => ({
+            ...prev,
+            name: `${p.name} Plan`,
+            slug: p.slug,
+            bankLimit: p.bankLimit,
+            ecomLimit: p.ecomLimit,
+            renews: 'Renews next month • ' + p.price,
+          }));
+        }
       });
   };
 
-  const billingHistory = [
-    { id: 'PAY-904821', date: '2026-08-15', amount: '₹999.00', status: 'Success', method: 'Razorpay (UPI)' },
-    { id: 'PAY-810294', date: '2026-07-15', amount: '₹999.00', status: 'Success', method: 'Razorpay (Card)' },
-  ];
+  const billingHistory: any[] = [];
+
+  const bankPercentage = typeof subscription.bankLimit === 'number' && subscription.bankLimit > 0
+    ? Math.min(100, Math.round((subscription.bankUsed / subscription.bankLimit) * 100))
+    : 0;
+
+  const ecomPercentage = typeof subscription.ecomLimit === 'number' && subscription.ecomLimit > 0
+    ? Math.min(100, Math.round((subscription.ecomUsed / subscription.ecomLimit) * 100))
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -51,32 +97,32 @@ export const SubscriptionPage: React.FC = () => {
           <div className="flex justify-between items-start mb-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-[#666666]">Active Subscription</p>
-              <h3 className="text-xl font-extrabold text-black mt-1">Professional Plan</h3>
+              <h3 className="text-xl font-extrabold text-black mt-1">{subscription.name}</h3>
             </div>
             <Badge variant="success">Active</Badge>
           </div>
-          <p className="text-xs text-[#666666]">Renews on Sep 15, 2026 • ₹999/mo</p>
+          <p className="text-xs text-[#666666]">{subscription.renews}</p>
         </Card>
 
         <Card className="p-6 bg-white">
           <p className="text-xs font-bold uppercase tracking-wider text-[#666666] mb-1">Bank Conversions</p>
           <div className="flex justify-between text-xs font-bold text-black mb-1">
-            <span>38 used</span>
-            <span>200 limit</span>
+            <span>{subscription.bankUsed} used</span>
+            <span>{subscription.bankLimit} limit</span>
           </div>
           <div className="w-full bg-[#F7F7F7] h-2 rounded-full overflow-hidden border border-[#E5E5E5]">
-            <div className="bg-black h-full w-[19%]" />
+            <div className="bg-black h-full transition-all duration-300" style={{ width: `${bankPercentage}%` }} />
           </div>
         </Card>
 
         <Card className="p-6 bg-white">
           <p className="text-xs font-bold uppercase tracking-wider text-[#666666] mb-1">E-Commerce Reports</p>
           <div className="flex justify-between text-xs font-bold text-black mb-1">
-            <span>14 used</span>
-            <span>100 limit</span>
+            <span>{subscription.ecomUsed} used</span>
+            <span>{subscription.ecomLimit} limit</span>
           </div>
           <div className="w-full bg-[#F7F7F7] h-2 rounded-full overflow-hidden border border-[#E5E5E5]">
-            <div className="bg-black h-full w-[14%]" />
+            <div className="bg-black h-full transition-all duration-300" style={{ width: `${ecomPercentage}%` }} />
           </div>
         </Card>
       </div>

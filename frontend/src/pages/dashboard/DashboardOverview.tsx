@@ -17,20 +17,17 @@ interface ActivityItem {
 
 export const DashboardOverview: React.FC = () => {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [widgets, setWidgets] = useState({ total_files: 0, processed_files: 0, failed_files: 0, remaining_credits: 150 });
 
   useEffect(() => {
     fetch('/api/dashboard/summary')
       .then((res) => res.json())
       .then((data) => {
         setActivities(data.recent_activity || []);
+        if (data.widgets) setWidgets(data.widgets);
       })
       .catch(() => {
-        setActivities([
-          { id: 1, filename: 'HDFC_Bank_Statement_Q3.pdf', module: 'Bank Converter', status: 'completed', date: '2026-08-21 14:30', transactions_count: 142 },
-          { id: 2, filename: 'Amazon_Sales_Report_Aug.csv', module: 'E-Commerce GSTR-1', status: 'completed', date: '2026-08-21 11:15', transactions_count: 840 },
-          { id: 3, filename: 'SBI_Statement_July.pdf', module: 'Bank Converter', status: 'completed', date: '2026-08-20 18:45', transactions_count: 88 },
-          { id: 4, filename: 'Meesho_Payouts_Report.csv', module: 'E-Commerce GSTR-1', status: 'failed', date: '2026-08-19 16:00', transactions_count: 0 },
-        ]);
+        setActivities([]);
       });
   }, []);
 
@@ -96,10 +93,10 @@ export const DashboardOverview: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <KpiCard title="Total Files Uploaded" value="12 Files" subtitle="All modules combined" icon={<FileText className="w-5 h-5" />} />
-        <KpiCard title="Successfully Processed" value="11 Files" trend={{ value: '91.6% Success Rate', isPositive: true }} icon={<CheckCircle2 className="w-5 h-5 text-[#16A34A]" />} />
-        <KpiCard title="Failed Extractions" value="1 File" subtitle="Requires column update" icon={<AlertCircle className="w-5 h-5 text-[#DC2626]" />} />
-        <KpiCard title="Available Credits" value="150 Credits" badge={<Badge variant="neutral">Professional Plan</Badge>} />
+        <KpiCard title="Total Files Uploaded" value={`${widgets.total_files} Files`} subtitle="All modules combined" icon={<FileText className="w-5 h-5" />} />
+        <KpiCard title="Successfully Processed" value={`${widgets.processed_files} Files`} trend={{ value: widgets.total_files > 0 ? `${Math.round((widgets.processed_files/widgets.total_files)*100)}% Success Rate` : '0% Success Rate', isPositive: true }} icon={<CheckCircle2 className="w-5 h-5 text-[#16A34A]" />} />
+        <KpiCard title="Failed Extractions" value={`${widgets.failed_files} File${widgets.failed_files !== 1 ? 's' : ''}`} subtitle={widgets.failed_files > 0 ? "Requires column update" : "All clear"} icon={<AlertCircle className="w-5 h-5 text-[#DC2626]" />} />
+        <KpiCard title="Available Credits" value={`${widgets.remaining_credits} Credits`} badge={<Badge variant="neutral">Professional Plan</Badge>} />
       </div>
 
       <div>

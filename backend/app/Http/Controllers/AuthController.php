@@ -19,13 +19,35 @@ class AuthController extends Controller
     }
 
     /**
-     * Register New User (Pending Verification)
+     * Normalize email: trim and convert to lowercase
+     */
+    protected function normalizeEmail(string $email): string
+    {
+        return strtolower(trim($email));
+    }
+
+    /**
+     * Normalize Indian mobile number format consistently (+91XXXXXXXXXX)
+     */
+    protected function normalizeMobile(string $mobile): string
+    {
+        $cleanDigits = preg_replace('/[^0-9]/', '', $mobile);
+        if (strlen($cleanDigits) === 12 && str_starts_with($cleanDigits, '91')) {
+            return '+' . $cleanDigits;
+        } else if (strlen($cleanDigits) === 10) {
+            return '+91' . $cleanDigits;
+        }
+        return '+' . $cleanDigits;
+    }
+
+    /**
+     * Register New User (Pending Verification) with Resumable Pending Signup Support
      */
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|min:2|max:100',
-            'email' => 'required|email|max:255|unique:users,email',
+            'email' => 'required|email|max:255',
             'mobile' => [
                 'required',
                 'string',
@@ -44,7 +66,6 @@ class AuthController extends Controller
             'name.required' => 'Full Name is required.',
             'email.required' => 'Email Address is required.',
             'email.email' => 'Please enter a valid email address.',
-            'email.unique' => 'An account with this email address already exists.',
             'mobile.required' => 'Mobile Number is required.',
             'mobile.regex' => 'Please enter a valid 10-digit Indian mobile number.',
             'password.required' => 'Password is required.',
@@ -60,37 +81,155 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Normalize mobile number format
-        $cleanMobile = preg_replace('/[^0-9]/', '', $request->mobile);
-        if (strlen($cleanMobile) === 12 && str_starts_with($cleanMobile, '91')) {
-            $cleanMobile = '+' . $cleanMobile;
-        } else if (strlen($cleanMobile) === 10) {
-            $cleanMobile = '+91' . $cleanMobile;
+        // Canonical normalization before uniqueness check
+        $cleanEmail = $this->normalizeEmail($request->email);
+        $cleanMobile = $this->normalizeMobile($request->mobile);
+
+        // Pre-check existing email and mobile in User table
+        $existingUserByEmail = User::where('email', $cleanEmail)->first();
+        $existingUserByMobile = User::where('mobile', $cleanMobile)->first();
+
+        // CASE A: Both email and mobile match the SAME existing user
+        if ($existingUserByEmail && $existingUserByMobile && $existingUserByEmail->id === $existingUserByMobile->id) {
+            $user = $existingUserByEmail;
+
+            // If existing user is NOT YET ACTIVE (Unverified / Pending Verification), resume verification flow cleanly
+            if ($user->account_status !== 'active') {
+                $user->update([
+                    'name' => trim($request->name),
+                    'password' => Hash::make($request->password),
+                    'user_type' => $request->user_type ?? $user->user_type,
+                ]);
+
+                $otpRes = $this->otpService->createAndSendOtp($user, 'email', $user->email);
+
+                if (!$otpRes['success']) {
+                    return response()->json([
+                        'message' => $otpRes['message'],
+                        'code' => $otpRes['code'] ?? 'OTP_DELIVERY_FAILED',
+                        'delivery_failed' => $otpRes['delivery_failed'] ?? true,
+                    ], 422);
+                }
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Pending account found. A new verification code has been sent to your email.',
+                    'user_id' => $user->id,
+                    'account_status' => $user->account_status,
+                    'masked_destination' => $otpRes['destination_masked'],
+                    'step' => '02_email_verification',
+                    'resumed' => true,
+                ], 200);
+            }
+
+            // If account is FULLY ACTIVE & VERIFIED, block duplicate creation
+            return response()->json([
+                'message' => 'An account with this email and mobile number already exists. Please log in instead.',
+                'errors' => [
+                    'email' => ['An account with this email address already exists.'],
+                    'mobile' => ['An account with this mobile number already exists.'],
+                ],
+            ], 422);
         }
 
-        // Check if normalized mobile already exists
-        if (User::where('mobile', $cleanMobile)->exists()) {
+        // CASE B: Email belongs to a FULLY ACTIVE user
+        if ($existingUserByEmail && $existingUserByEmail->account_status === 'active') {
             return response()->json([
-                'message' => 'Validation failed',
+                'message' => 'An account with this email address already exists.',
+                'errors' => [
+                    'email' => ['An account with this email address already exists.'],
+                ],
+            ], 422);
+        }
+
+        // CASE C: Mobile belongs to a FULLY ACTIVE user
+        if ($existingUserByMobile && $existingUserByMobile->account_status === 'active') {
+            return response()->json([
+                'message' => 'An account with this mobile number already exists.',
                 'errors' => [
                     'mobile' => ['An account with this mobile number already exists.'],
                 ],
             ], 422);
         }
 
-        // Create user with pending_verification status
-        $user = User::create([
-            'name' => trim($request->name),
-            'email' => strtolower(trim($request->email)),
-            'mobile' => $cleanMobile,
-            'user_type' => $request->user_type ?? 'CA',
-            'password' => Hash::make($request->password),
-            'credits' => 50,
-            'status' => 'active',
-            'account_status' => 'pending_verification',
-        ]);
+        // CASE D: Email belongs to an UNVERIFIED pending user -> update mobile and resume OTP
+        if ($existingUserByEmail && $existingUserByEmail->account_status !== 'active') {
+            $user = $existingUserByEmail;
+            $user->update([
+                'name' => trim($request->name),
+                'mobile' => $cleanMobile,
+                'password' => Hash::make($request->password),
+                'user_type' => $request->user_type ?? $user->user_type,
+            ]);
 
-        // Generate & Dispatch Email OTP
+            $otpRes = $this->otpService->createAndSendOtp($user, 'email', $user->email);
+
+            if (!$otpRes['success']) {
+                return response()->json([
+                    'message' => $otpRes['message'],
+                    'code' => $otpRes['code'] ?? 'OTP_DELIVERY_FAILED',
+                    'delivery_failed' => $otpRes['delivery_failed'] ?? true,
+                ], 422);
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Pending account found. A new verification code has been sent to your email.',
+                'user_id' => $user->id,
+                'account_status' => $user->account_status,
+                'masked_destination' => $otpRes['destination_masked'],
+                'step' => '02_email_verification',
+                'resumed' => true,
+            ], 200);
+        }
+
+        // CASE E: Completely NEW user -> create pending record with DB race-condition safety
+        try {
+            $user = User::create([
+                'name' => trim($request->name),
+                'email' => $cleanEmail,
+                'mobile' => $cleanMobile,
+                'user_type' => $request->user_type ?? 'CA',
+                'password' => Hash::make($request->password),
+                'credits' => 2,
+                'status' => 'active',
+                'account_status' => 'pending_verification',
+            ]);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Re-evaluate in race conditions
+            $emailActive = User::where('email', $cleanEmail)->where('account_status', 'active')->exists();
+            $mobileActive = User::where('mobile', $cleanMobile)->where('account_status', 'active')->exists();
+
+            if ($emailActive && $mobileActive) {
+                return response()->json([
+                    'message' => 'An account with this email and mobile number already exists. Please log in instead.',
+                    'errors' => [
+                        'email' => ['An account with this email address already exists.'],
+                        'mobile' => ['An account with this mobile number already exists.'],
+                    ],
+                ], 422);
+            } else if ($emailActive) {
+                return response()->json([
+                    'message' => 'An account with this email address already exists.',
+                    'errors' => [
+                        'email' => ['An account with this email address already exists.'],
+                    ],
+                ], 422);
+            } else if ($mobileActive) {
+                return response()->json([
+                    'message' => 'An account with this mobile number already exists.',
+                    'errors' => [
+                        'mobile' => ['An account with this mobile number already exists.'],
+                    ],
+                ], 422);
+            }
+
+            return response()->json([
+                'message' => 'An account with this email or mobile number already exists.',
+            ], 422);
+        }
+
+        // Generate & Dispatch Real Email OTP
         $otpRes = $this->otpService->createAndSendOtp($user, 'email', $user->email);
 
         if (!$otpRes['success']) {
@@ -103,7 +242,7 @@ class AuthController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Account created. Please verify your email code to continue.',
+            'message' => 'Account created. Please enter the verification code sent to your email.',
             'user_id' => $user->id,
             'account_status' => $user->account_status,
             'masked_destination' => $otpRes['destination_masked'],
@@ -138,14 +277,26 @@ class AuthController extends Controller
             'account_status' => 'email_verified',
         ]);
 
-        // Generate & Send Mobile OTP
+        // Attempt mobile OTP dispatch; if SMS fails, remain at email_verified state so user can retry or change mobile number
         $mobileOtpRes = $this->otpService->createAndSendOtp($user, 'mobile', $user->mobile);
+
+        if (!$mobileOtpRes['success']) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Email verified successfully. Unable to send mobile code: ' . $mobileOtpRes['message'],
+                'user_id' => $user->id,
+                'account_status' => 'email_verified',
+                'masked_destination' => $this->otpService->maskDestination('mobile', $user->mobile),
+                'step' => '03_mobile_verification',
+                'sms_delivery_failed' => true,
+            ]);
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Email verified. Please enter the verification code sent to your mobile.',
             'user_id' => $user->id,
-            'account_status' => $user->account_status,
+            'account_status' => 'email_verified',
             'masked_destination' => $mobileOtpRes['destination_masked'] ?? $this->otpService->maskDestination('mobile', $user->mobile),
             'step' => '03_mobile_verification',
         ]);
@@ -167,9 +318,9 @@ class AuthController extends Controller
         $user = User::findOrFail($request->user_id);
 
         if ($request->new_email && filter_var($request->new_email, FILTER_VALIDATE_EMAIL)) {
-            $newEmail = strtolower(trim($request->new_email));
-            if (User::where('email', $newEmail)->where('id', '!=', $user->id)->exists()) {
-                return response()->json(['message' => 'This email is already in use by another account.'], 422);
+            $newEmail = $this->normalizeEmail($request->new_email);
+            if (User::where('email', $newEmail)->where('id', '!=', $user->id)->where('account_status', 'active')->exists()) {
+                return response()->json(['message' => 'An account with this email address already exists.'], 422);
             }
             $user->update(['email' => $newEmail]);
         }
@@ -240,10 +391,9 @@ class AuthController extends Controller
         $user = User::findOrFail($request->user_id);
 
         if ($request->new_mobile) {
-            $cleanMobile = preg_replace('/[^0-9]/', '', $request->new_mobile);
-            if (strlen($cleanMobile) === 10) $cleanMobile = '+91' . $cleanMobile;
-            if (User::where('mobile', $cleanMobile)->where('id', '!=', $user->id)->exists()) {
-                return response()->json(['message' => 'This mobile number is already registered.'], 422);
+            $cleanMobile = $this->normalizeMobile($request->new_mobile);
+            if (User::where('mobile', $cleanMobile)->where('id', '!=', $user->id)->where('account_status', 'active')->exists()) {
+                return response()->json(['message' => 'An account with this mobile number already exists.'], 422);
             }
             $user->update(['mobile' => $cleanMobile]);
         }
@@ -283,7 +433,7 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $email = strtolower(trim($request->email));
+        $email = $this->normalizeEmail($request->email);
         $user = User::where('email', $email)->first();
 
         // 1. Unregistered User Check
@@ -315,11 +465,11 @@ class AuthController extends Controller
             $nextChannel = $user->account_status === 'email_verified' ? 'mobile' : 'email';
             $destination = $nextChannel === 'email' ? $user->email : $user->mobile;
 
-            // Dispatch OTP if needed
+            // Attempt OTP dispatch
             $otpRes = $this->otpService->createAndSendOtp($user, $nextChannel, $destination);
 
             return response()->json([
-                'message' => 'Your account verification is incomplete.',
+                'message' => 'Your account email address is not yet verified. Please verify your email to sign in.',
                 'code' => 'VERIFICATION_INCOMPLETE',
                 'unverified' => true,
                 'user_id' => $user->id,
@@ -362,7 +512,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
-        $user = User::where('email', strtolower(trim($request->email)))->first();
+        $user = User::where('email', $this->normalizeEmail($request->email))->first();
 
         if ($user) {
             $this->otpService->createAndSendOtp($user, 'email', $user->email);

@@ -2,7 +2,7 @@
 
 namespace App\Services\Parsers;
 
-class SBIBankParser extends BaseBankParser
+class AxisBankParser extends BaseBankParser
 {
     public function parse(array $pdfData): array
     {

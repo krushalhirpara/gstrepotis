@@ -81,22 +81,25 @@ class ReportService
     }
 
     /**
-     * Format bank statement transactions as downloadable CSV string.
+     * Format bank statement transactions as downloadable CSV string with UTF-8 BOM.
      */
     public function generateBankCsv(array $transactions): string
     {
         $output = fopen('php://temp', 'r+');
-        fputcsv($output, ['Date', 'Value Date', 'Narration', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance']);
+        // Add UTF-8 BOM for Microsoft Excel compatibility
+        fwrite($output, "\xEF\xBB\xBF");
+        fputcsv($output, ['#', 'Date', 'Value Date', 'Narration / Description', 'Reference No', 'Debit (Dr)', 'Credit (Cr)', 'Balance']);
 
-        foreach ($transactions as $tx) {
+        foreach ($transactions as $idx => $tx) {
             fputcsv($output, [
-                $tx['transaction_date'],
-                $tx['value_date'] ?? $tx['transaction_date'],
-                $tx['narration'],
+                $idx + 1,
+                $tx['transaction_date'] ?? '',
+                $tx['value_date'] ?? ($tx['transaction_date'] ?? ''),
+                $tx['narration'] ?? '',
                 $tx['reference_number'] ?? '',
-                $tx['debit'] > 0 ? number_format($tx['debit'], 2, '.', '') : '',
-                $tx['credit'] > 0 ? number_format($tx['credit'], 2, '.', '') : '',
-                number_format($tx['balance'], 2, '.', ''),
+                ($tx['debit'] ?? 0) > 0 ? number_format($tx['debit'], 2, '.', '') : '',
+                ($tx['credit'] ?? 0) > 0 ? number_format($tx['credit'], 2, '.', '') : '',
+                number_format($tx['balance'] ?? 0, 2, '.', ''),
             ]);
         }
 

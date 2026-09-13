@@ -9,7 +9,7 @@ import {
   ShoppingCart,
   BookOpen,
   History,
-  ArrowLeft,
+  LogOut,
 } from 'lucide-react';
 
 export const AdminLayout: React.FC = () => {
@@ -60,11 +60,19 @@ export const AdminLayout: React.FC = () => {
         </div>
 
         <div className="p-4 border-t border-neutral-800">
-          <Link to="/dashboard">
-            <Button variant="outline" className="w-full bg-neutral-900 border-neutral-700 text-white hover:bg-neutral-800" leftIcon={<ArrowLeft className="w-4 h-4" />}>
-              Back to User Workspace
-            </Button>
-          </Link>
+          <Button
+            variant="outline"
+            className="w-full text-[#DC2626] border-neutral-800 hover:bg-red-950/20"
+            leftIcon={<LogOut className="w-4 h-4" />}
+            onClick={() => {
+              localStorage.removeItem('gst_token');
+              localStorage.removeItem('gst_user');
+              localStorage.removeItem('gst_admin_authenticated');
+              window.location.href = '/ceoadmin';
+            }}
+          >
+            Logout Admin
+          </Button>
         </div>
       </aside>
 

@@ -7,11 +7,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { Download, Mail, Phone } from 'lucide-react';
 
 export const ReportsPage: React.FC = () => {
-  const reports = [
-    { id: 'REP-001', name: 'GSTR-1 Ready JSON File', date: '2026-08-21', type: 'GST JSON', size: '1.4 MB' },
-    { id: 'REP-002', name: 'Tally Bank Vouchers XML', date: '2026-08-19', type: 'Tally XML', size: '420 KB' },
-    { id: 'REP-003', name: 'E-Commerce Accounting Summary', date: '2026-08-18', type: 'Excel CSV', size: '2.8 MB' },
-  ];
+  const reports: any[] = [];
 
   return (
     <div className="space-y-6">
@@ -41,14 +37,44 @@ export const ReportsPage: React.FC = () => {
 };
 
 export const ProfilePage: React.FC = () => {
-  const [user, setUser] = useState({
-    name: 'Rajesh Sharma (CA)',
-    email: 'demo@gstsuite.com',
-    mobile: '+91 98123 45678',
-    user_type: 'CA',
-    firm: 'Sharma & Co. Chartered Accountants',
+  const [user, setUser] = useState(() => {
+    const stored = localStorage.getItem('gst_user');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return {
+        name: parsed.name || '',
+        email: parsed.email || '',
+        mobile: parsed.mobile || '',
+        user_type: 'CA',
+        firm: parsed.firm || '',
+        address: parsed.address || '',
+      };
+    }
+    return {
+      name: '',
+      email: '',
+      mobile: '',
+      user_type: 'CA',
+      firm: '',
+      address: '',
+    };
   });
   const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    const stored = localStorage.getItem('gst_user');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      parsed.name = user.name;
+      parsed.email = user.email;
+      parsed.mobile = user.mobile;
+      parsed.firm = user.firm;
+      parsed.address = user.address;
+      localStorage.setItem('gst_user', JSON.stringify(parsed));
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -67,9 +93,12 @@ export const ProfilePage: React.FC = () => {
           <Input label="Mobile Number" value={user.mobile} onChange={(e) => setUser({ ...user, mobile: e.target.value })} />
           <Input label="Firm / Office Name" value={user.firm} onChange={(e) => setUser({ ...user, firm: e.target.value })} />
         </div>
+        <div>
+          <Input label="Office Address" value={user.address} onChange={(e) => setUser({ ...user, address: e.target.value })} />
+        </div>
 
         <div className="pt-4 border-t border-[#E5E5E5] flex justify-end">
-          <Button variant="primary" onClick={() => setSaved(true)}>
+          <Button variant="primary" onClick={handleSave}>
             Save Profile Changes
           </Button>
         </div>

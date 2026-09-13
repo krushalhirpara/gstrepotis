@@ -134,10 +134,10 @@ class DatabaseSeeder extends Seeder
                 'slug' => 'free-trial',
                 'price_monthly' => 0.00,
                 'price_yearly' => 0.00,
-                'bank_statement_limit' => 10,
-                'ecommerce_report_limit' => 5,
+                'bank_statement_limit' => 1,
+                'ecommerce_report_limit' => 1,
                 'bulk_upload_enabled' => false,
-                'features' => json_encode(['10 Bank Statement Conversions', '5 E-commerce Sales Reports', 'CSV & Tally XML Export', 'Standard Email Support']),
+                'features' => json_encode(['1 Bank Statement Conversion', '1 E-commerce Sales Report', 'CSV & Tally XML Export', 'Standard Email Support']),
             ],
             [
                 'name' => 'Professional',

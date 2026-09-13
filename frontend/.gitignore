@@ -1,4 +1,13 @@
-# Logs
+# =========================================
+# ENVIRONMENT VARIABLES / SECRETS
+# =========================================
+.env
+.env.*
+!.env.example
+
+# =========================================
+# LOGS
+# =========================================
 logs
 *.log
 npm-debug.log*
@@ -7,15 +16,42 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# =========================================
+# NODE / FRONTEND
+# =========================================
+node_modules/
+dist/
+dist-ssr/
+.next/
 *.local
 
-# Editor directories and files
+# =========================================
+# LARAVEL / PHP
+# =========================================
+/backend/vendor/
+/backend/.env
+/backend/bootstrap/cache/*
+!/backend/bootstrap/cache/.gitignore
+
+/backend/storage/*.key
+/backend/storage/logs/*
+/backend/storage/framework/cache/*
+/backend/storage/framework/sessions/*
+/backend/storage/framework/testing/*
+/backend/storage/framework/views/*
+
+# =========================================
+# DATABASE / LOCAL DATA
+# =========================================
+*.sqlite
+*.sqlite3
+
+# =========================================
+# EDITORS
+# =========================================
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*

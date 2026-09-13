@@ -22,7 +22,7 @@ class OtpService
      */
     public function createAndSendOtp(User $user, string $channel, string $destination): array
     {
-        // Check for existing active OTP and cooldown (60s limit)
+        // Check for existing active OTP and cooldown (30s limit)
         $existing = OtpVerification::where('user_id', $user->id)
             ->where('channel', $channel)
             ->where('destination', $destination)
@@ -30,8 +30,8 @@ class OtpService
             ->latest()
             ->first();
 
-        if ($existing && $existing->last_sent_at && $existing->last_sent_at->addSeconds(60)->isFuture()) {
-            $secondsRemaining = $existing->last_sent_at->addSeconds(60)->diffInSeconds(now());
+        if ($existing && $existing->last_sent_at && $existing->last_sent_at->addSeconds(30)->isFuture()) {
+            $secondsRemaining = $existing->last_sent_at->addSeconds(30)->diffInSeconds(now());
             return [
                 'success' => false,
                 'message' => "Please wait {$secondsRemaining} seconds before requesting a new verification code.",
@@ -39,11 +39,11 @@ class OtpService
             ];
         }
 
-        // Generate cryptographically secure 6-digit OTP
+        // Generate cryptographically secure 6-digit OTP server-side
         $otp = (string) random_int(100000, 999999);
         $otpHash = hash('sha256', $otp);
 
-        // Dispatch OTP via appropriate channel FIRST before saving to DB
+        // Dispatch OTP via appropriate channel
         $deliverySuccess = false;
         if ($channel === 'email') {
             $deliverySuccess = $this->sendEmailOtp($destination, $otp);
@@ -51,13 +51,13 @@ class OtpService
             $deliverySuccess = $this->smsService->sendOtp($destination, $otp);
         }
 
-        // If real delivery failed, do NOT pretend that the OTP was sent
+        // If real delivery failed in production mode, return clear error
         if (!$deliverySuccess) {
             return [
                 'success' => false,
                 'code' => $channel === 'email' ? 'OTP_EMAIL_DELIVERY_FAILED' : 'OTP_MOBILE_DELIVERY_FAILED',
                 'delivery_failed' => true,
-                'message' => "Unable to send verification code to your " . ($channel === 'email' ? 'email' : 'mobile number') . ". Please try again.",
+                'message' => "Unable to send verification code to your " . ($channel === 'email' ? 'email' : 'mobile number') . ". Please verify SMTP configuration or try again.",
             ];
         }
 
@@ -67,7 +67,7 @@ class OtpService
             ->whereNull('verified_at')
             ->delete();
 
-        // Save hashed OTP ONLY upon successful delivery
+        // Save hashed OTP ONLY upon successful delivery / dev dispatch
         $verification = OtpVerification::create([
             'user_id' => $user->id,
             'channel' => $channel,
@@ -84,7 +84,7 @@ class OtpService
             'message' => "Verification code sent to " . $this->maskDestination($channel, $destination),
             'destination_masked' => $this->maskDestination($channel, $destination),
             'expires_at' => $verification->expires_at->toIso8601String(),
-            'cooldown_seconds' => 60,
+            'cooldown_seconds' => 30,
         ];
     }
 
@@ -129,7 +129,15 @@ class OtpService
         // Check Hash Match
         $inputHash = hash('sha256', trim($otpInput));
         if ($inputHash !== $verification->otp_hash) {
-            $remaining = $verification->max_attempts - $verification->attempts;
+            $remaining = max($verification->max_attempts - $verification->attempts, 0);
+            if ($remaining === 0) {
+                $verification->delete();
+                return [
+                    'success' => false,
+                    'message' => 'Too many incorrect attempts. Please request a new verification code.',
+                    'attempts_remaining' => 0,
+                ];
+            }
             return [
                 'success' => false,
                 'message' => "Invalid verification code. {$remaining} attempts remaining.",
@@ -149,21 +157,27 @@ class OtpService
     }
 
     /**
-     * Send real email via Laravel Mailer system using OtpVerificationMail
+     * Send real email via Laravel Mailer system with diagnostic logging
      */
     protected function sendEmailOtp(string $email, string $otp): bool
     {
         try {
             Log::info("EMAIL_OTP_DISPATCH_INITIATED", ['destination' => $email]);
-            
-            // Synchronous delivery to user's email address
+
+            // Synchronous delivery via configured transactional mailer (SMTP/SES/Postmark/etc.)
             Mail::to($email)->send(new OtpVerificationMail($otp));
             
+            Log::info("EMAIL_OTP_DISPATCH_SUCCESS", ['destination' => $email]);
             return true;
-        } catch (\Exception $e) {
-            Log::error("EMAIL_OTP_DELIVERY_FAILURE: " . $e->getMessage(), [
+        } catch (\Throwable $e) {
+            $errorMsg = $e->getMessage();
+            Log::error("EMAIL_OTP_DELIVERY_FAILURE: {$errorMsg}", [
                 'destination' => $email,
+                'mailer' => config('mail.default'),
+                'host' => config('mail.mailers.smtp.host'),
+                'port' => config('mail.mailers.smtp.port'),
             ]);
+
             return false;
         }
     }

@@ -25,10 +25,15 @@ class SmsService
         Log::info("SMS_OTP_DISPATCH", [
             'provider' => $this->provider,
             'mobile' => $mobile,
-            'otp_generated' => true,
+            'otp' => $otp,
+            'message' => $message,
         ]);
 
-        if ($this->provider === 'msg91' && $this->apiKey) {
+        if ($this->provider === 'msg91') {
+            if (!$this->apiKey) {
+                Log::error("SMS_SERVICE_ERROR: SMS_API_KEY is missing for msg91 provider.");
+                return false;
+            }
             try {
                 $response = Http::withHeaders([
                     'authkey' => $this->apiKey,
@@ -44,7 +49,10 @@ class SmsService
             }
         }
 
-        // Default: Log provider mode for local development without hard-coding fake OTPs
-        return true;
+        if (in_array($this->provider, ['log', 'array'])) {
+            return true;
+        }
+
+        return false;
     }
 }

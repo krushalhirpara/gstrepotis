@@ -25,12 +25,7 @@ export const FilesManager: React.FC = () => {
       .then((res) => res.json())
       .then((data) => setFiles(data.files || []))
       .catch(() => {
-        setFiles([
-          { id: 1, filename: 'HDFC_Statement_Q3_2026.pdf', module: 'Bank Statement', status: 'completed', uploaded: '2026-08-19 10:20', processed: '2026-08-19 10:22', records_count: 142, file_size: '1.2 MB' },
-          { id: 2, filename: 'Amazon_Sales_Aug2026.csv', module: 'E-Commerce GSTR-1', status: 'completed', uploaded: '2026-08-18 14:10', processed: '2026-08-18 14:12', records_count: 840, file_size: '4.8 MB' },
-          { id: 3, filename: 'SBI_Statement_July2026.pdf', module: 'Bank Statement', status: 'completed', uploaded: '2026-08-16 11:00', processed: '2026-08-16 11:02', records_count: 88, file_size: '850 KB' },
-          { id: 4, filename: 'Meesho_Payouts_Report.csv', module: 'E-Commerce GSTR-1', status: 'failed', uploaded: '2026-08-15 09:30', processed: '2026-08-15 09:31', records_count: 0, file_size: '320 KB', error: 'Invalid CSV column format' },
-        ]);
+        setFiles([]);
       });
   }, [filter]);
 

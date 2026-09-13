@@ -2,7 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Header, Footer } from './components/layout/Header';
 import { ScrollToTop } from './components/layout/ScrollToTop';
-import { ProtectedRoute, PublicOnlyRoute } from './components/layout/ProtectedRoute';
+import { ProtectedRoute, PublicOnlyRoute, AdminProtectedRoute } from './components/layout/ProtectedRoute';
 
 import { Home } from './pages/public/Home';
 import { BankConverterLanding, EcommerceGstr1Landing } from './pages/public/ProductPages';
@@ -11,6 +11,10 @@ import { TutorialsPage, TutorialDetailPage, ContactPage, RequestDemoPage } from 
 import { SignInPage, SignUpPage, ForgotPasswordPage } from './pages/public/AuthPages';
 import { TermsPage, PrivacyPage, RefundPolicyPage } from './pages/public/LegalPages';
 import { WelcomePage } from './pages/public/WelcomePage';
+import { CeoAdminLogin } from './pages/admin/CeoAdminLogin';
+
+import { ClientListPage } from './pages/clients/ClientListPage';
+import { ClientDetailPage } from './pages/clients/ClientDetailPage';
 
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { DashboardOverview } from './pages/dashboard/DashboardOverview';
@@ -40,19 +44,91 @@ export const App: React.FC = () => {
         <main className="flex-1">
           <Routes>
             {/* Public Landing & Content Routes */}
-            <Route path="/" element={<Home />} />
-            <Route path="/products/bank-statement-converter" element={<BankConverterLanding />} />
-            <Route path="/products/ecommerce-gstr1" element={<EcommerceGstr1Landing />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/tutorials" element={<TutorialsPage />} />
-            <Route path="/tutorials/:slug" element={<TutorialDetailPage />} />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/request-demo" element={<RequestDemoPage />} />
+            <Route
+              path="/"
+              element={
+                <PublicOnlyRoute>
+                  <Home />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/products/bank-statement-converter"
+              element={
+                <PublicOnlyRoute>
+                  <BankConverterLanding />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/products/ecommerce-gstr1"
+              element={
+                <PublicOnlyRoute>
+                  <EcommerceGstr1Landing />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/pricing"
+              element={
+                <PublicOnlyRoute>
+                  <PricingPage />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/about"
+              element={
+                <PublicOnlyRoute>
+                  <AboutPage />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/tutorials"
+              element={
+                <PublicOnlyRoute>
+                  <TutorialsPage />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/tutorials/:slug"
+              element={
+                <PublicOnlyRoute>
+                  <TutorialDetailPage />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/contact"
+              element={
+                <PublicOnlyRoute>
+                  <ContactPage />
+                </PublicOnlyRoute>
+              }
+            />
+            <Route
+              path="/request-demo"
+              element={
+                <PublicOnlyRoute>
+                  <RequestDemoPage />
+                </PublicOnlyRoute>
+              }
+            />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/refund-policy" element={<RefundPolicyPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route
+              path="/forgot-password"
+              element={
+                <PublicOnlyRoute>
+                  <ForgotPasswordPage />
+                </PublicOnlyRoute>
+              }
+            />
+
+            <Route path="/ceoadmin" element={<CeoAdminLogin />} />
 
             {/* Public Auth Routes (Redirect authenticated users to /welcome) */}
             <Route
@@ -82,7 +158,7 @@ export const App: React.FC = () => {
               }
             />
 
-            {/* Protected Post-Login Product Card Routes */}
+            {/* Protected Client Management Module Routes */}
             <Route
               path="/clients"
               element={
@@ -91,9 +167,11 @@ export const App: React.FC = () => {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<EcommerceGstr1Workflow />} />
+              <Route index element={<ClientListPage />} />
+              <Route path=":id" element={<ClientDetailPage />} />
             </Route>
 
+            {/* Protected Bank Statement Converter Quick Route */}
             <Route
               path="/pdftotally"
               element={
@@ -128,9 +206,9 @@ export const App: React.FC = () => {
             <Route
               path="/admin"
               element={
-                <ProtectedRoute>
+                <AdminProtectedRoute>
                   <AdminLayout />
-                </ProtectedRoute>
+                </AdminProtectedRoute>
               }
             >
               <Route index element={<AdminDashboard />} />

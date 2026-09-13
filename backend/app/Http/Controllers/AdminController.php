@@ -11,19 +11,28 @@ class AdminController extends Controller
 {
     public function getMetrics()
     {
-        $totalUsers = DB::table('users')->count();
-        $activeUsers = DB::table('users')->where('status', 'active')->count();
-        $trialUsers = DB::table('users')->where('credits', '<=', 50)->count();
+        $totalUsers = DB::table('users')->where('is_admin', 0)->count();
+        $activeUsers = DB::table('users')->where('is_admin', 0)->where('status', 'active')->count();
+        $trialUsers = DB::table('users')->where('is_admin', 0)->where('credits', '<=', 50)->count();
+
+        $filesProcessed = DB::table('bank_statements')->where('processing_status', 'completed')->count() +
+                          DB::table('marketplace_files')->where('status', 'completed')->count();
+
+        $processingFailures = DB::table('bank_statements')->where('processing_status', 'failed')->count() +
+                              DB::table('marketplace_files')->where('status', 'failed')->count();
+
+        $activeSubs = DB::table('users')->where('is_admin', 0)->where('credits', '>', 50)->count();
+        $revenue = $activeSubs * 999;
 
         return response()->json([
             'metrics' => [
-                'total_users' => $totalUsers > 0 ? $totalUsers : 1240,
-                'active_users' => $activeUsers > 0 ? $activeUsers : 1180,
-                'trial_users' => $trialUsers > 0 ? $trialUsers : 420,
-                'total_revenue' => '₹18,45,000',
-                'files_processed' => 48920,
-                'processing_failures' => 38,
-                'active_subscriptions' => 840,
+                'total_users' => $totalUsers,
+                'active_users' => $activeUsers,
+                'trial_users' => $trialUsers,
+                'total_revenue' => '₹' . number_format($revenue),
+                'files_processed' => $filesProcessed,
+                'processing_failures' => $processingFailures,
+                'active_subscriptions' => $activeSubs,
             ],
         ]);
     }

@@ -45,14 +45,25 @@ export const AdminDashboard: React.FC = () => {
 };
 
 export const AdminUsers: React.FC = () => {
-  const [users, setUsers] = useState([
-    { id: 1, name: 'Rajesh Sharma (CA)', email: 'demo@gstsuite.com', mobile: '+91 98123 45678', user_type: 'CA', credits: 150, status: 'active' },
-    { id: 2, name: 'Priya Mehta (Tax Pro)', email: 'priya@taxpro.in', mobile: '+91 98765 12345', user_type: 'Tax Professional', credits: 45, status: 'active' },
-    { id: 3, name: 'Anil Kumar (Seller)', email: 'anil@merchant.com', mobile: '+91 99887 76655', user_type: 'Seller', credits: 10, status: 'suspended' },
-  ]);
+  const [users, setUsers] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/users')
+      .then((res) => res.json())
+      .then((data) => setUsers(data.users || []))
+      .catch(() => {});
+  }, []);
 
   const toggleStatus = (id: number) => {
-    setUsers(users.map((u) => (u.id === id ? { ...u, status: u.status === 'active' ? 'suspended' : 'active' } : u)));
+    fetch(`/api/admin/users/${id}/toggle-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setUsers(users.map((u) => (u.id === id ? { ...u, status: data.user.status } : u)));
+      })
+      .catch(() => {});
   };
 
   const columns: Column<any>[] = [
@@ -89,19 +100,31 @@ export const AdminUsers: React.FC = () => {
 };
 
 export const AdminBanks: React.FC = () => {
-  const [banks, setBanks] = useState([
-    { id: 1, name: 'HDFC Bank', code: 'HDFC', parser_type: 'pdf_hdfc', status: 'active' },
-    { id: 2, name: 'State Bank of India', code: 'SBI', parser_type: 'pdf_sbi', status: 'active' },
-    { id: 3, name: 'ICICI Bank', code: 'ICICI', parser_type: 'pdf_icici', status: 'active' },
-    { id: 4, name: 'Axis Bank', code: 'AXIS', parser_type: 'pdf_axis', status: 'active' },
-  ]);
+  const [banks, setBanks] = useState<any[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newBank, setNewBank] = useState({ name: '', code: '', parser_type: 'pdf_standard' });
 
+  useEffect(() => {
+    fetch('/api/admin/banks')
+      .then((res) => res.json())
+      .then((data) => setBanks(data.banks || []))
+      .catch(() => {});
+  }, []);
+
   const handleAdd = () => {
     if (newBank.name && newBank.code) {
-      setBanks([...banks, { id: Date.now(), ...newBank, status: 'active' }]);
-      setIsAddOpen(false);
+      fetch('/api/admin/banks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newBank),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          setBanks([...banks, { id: data.id, ...newBank, status: 'active' }]);
+          setIsAddOpen(false);
+          setNewBank({ name: '', code: '', parser_type: 'pdf_standard' });
+        })
+        .catch(() => {});
     }
   };
 
@@ -149,12 +172,14 @@ export const AdminBanks: React.FC = () => {
 };
 
 export const AdminMarketplaces: React.FC = () => {
-  const marketplaces = [
-    { id: 1, name: 'Amazon', slug: 'amazon', parser: 'AmazonParser', status: 'active' },
-    { id: 2, name: 'Flipkart', slug: 'flipkart', parser: 'FlipkartParser', status: 'active' },
-    { id: 3, name: 'Meesho', slug: 'meesho', parser: 'MeeshoParser', status: 'active' },
-    { id: 4, name: 'Myntra', slug: 'myntra', parser: 'GenericMarketplaceParser', status: 'active' },
-  ];
+  const [marketplaces, setMarketplaces] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/marketplaces')
+      .then((res) => res.json())
+      .then((data) => setMarketplaces(data.marketplaces || []))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -175,18 +200,31 @@ export const AdminMarketplaces: React.FC = () => {
 };
 
 export const AdminHsn: React.FC = () => {
-  const [hsnList, setHsnList] = useState([
-    { id: 1, hsn_code: '8471', description: 'Automatic data processing machines & storage units', gst_rate: 18.0 },
-    { id: 2, hsn_code: '8517', description: 'Telephone sets & smartphones', gst_rate: 18.0 },
-    { id: 3, hsn_code: '6109', description: 'T-shirts and apparel', gst_rate: 5.0 },
-  ]);
+  const [hsnList, setHsnList] = useState<any[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newHsn, setNewHsn] = useState({ hsn_code: '', description: '', gst_rate: 18 });
 
+  useEffect(() => {
+    fetch('/api/admin/hsn')
+      .then((res) => res.json())
+      .then((data) => setHsnList(data.hsn_code || data.hsn_master || []))
+      .catch(() => {});
+  }, []);
+
   const handleAdd = () => {
     if (newHsn.hsn_code && newHsn.description) {
-      setHsnList([...hsnList, { id: Date.now(), ...newHsn, gst_rate: Number(newHsn.gst_rate) }]);
-      setIsAddOpen(false);
+      fetch('/api/admin/hsn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newHsn),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          setHsnList([...hsnList, { id: data.id, ...newHsn, gst_rate: Number(newHsn.gst_rate) }]);
+          setIsAddOpen(false);
+          setNewHsn({ hsn_code: '', description: '', gst_rate: 18 });
+        })
+        .catch(() => {});
     }
   };
 
@@ -224,11 +262,14 @@ export const AdminHsn: React.FC = () => {
 };
 
 export const AdminAuditLogs: React.FC = () => {
-  const logs = [
-    { id: 101, user: 'Rajesh Sharma (CA)', action: 'File Uploaded', module: 'Bank Statement', record: 'HDFC_Statement.pdf', ip: '103.21.124.8', timestamp: '2026-08-21 14:15' },
-    { id: 102, user: 'Admin User', action: 'Bank Added', module: 'Bank Master', record: 'IDFC First Bank', ip: '103.21.124.1', timestamp: '2026-08-21 13:00' },
-    { id: 103, user: 'Priya Mehta (Tax Pro)', action: 'Report Exported', module: 'GST JSON', record: 'Report_Aug2026.json', ip: '49.36.192.42', timestamp: '2026-08-21 11:30' },
-  ];
+  const [logs, setLogs] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch('/api/admin/audit-logs')
+      .then((res) => res.json())
+      .then((data) => setLogs(data.audit_logs || []))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-6">

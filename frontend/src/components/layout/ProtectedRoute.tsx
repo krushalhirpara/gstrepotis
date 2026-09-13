@@ -34,3 +34,18 @@ export const PublicOnlyRoute: React.FC<PublicOnlyRouteProps> = ({ children }) =>
 
   return children ? <>{children}</> : <Outlet />;
 };
+
+export const AdminProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const token = localStorage.getItem('gst_token');
+  const userRaw = localStorage.getItem('gst_user');
+  const isAdminAuthenticated = localStorage.getItem('gst_admin_authenticated') === 'true';
+
+  const user = userRaw ? JSON.parse(userRaw) : null;
+  const isAuthorized = Boolean(token && user && user.is_admin === 1 && isAdminAuthenticated);
+
+  if (!isAuthorized) {
+    return <Navigate to="/ceoadmin" replace />;
+  }
+
+  return children ? <>{children}</> : <Outlet />;
+};
