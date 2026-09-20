@@ -3,6 +3,7 @@ import { DataTable, type Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { FileText, ShoppingCart, Download, Trash2, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 interface FileItem {
   id: number;
@@ -21,7 +22,7 @@ export const FilesManager: React.FC = () => {
   const [files, setFiles] = useState<FileItem[]>([]);
 
   useEffect(() => {
-    fetch(`/api/files?filter=${filter}`)
+    apiFetch(`/api/files?filter=${filter}`)
       .then((res) => res.json())
       .then((data) => setFiles(data.files || []))
       .catch(() => {

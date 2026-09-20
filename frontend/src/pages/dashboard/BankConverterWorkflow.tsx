@@ -19,6 +19,7 @@ import {
   RotateCcw,
   FileSpreadsheet
 } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 interface QualityMetrics {
   total_transactions: number;
@@ -123,7 +124,7 @@ export const BankConverterWorkflow: React.FC = () => {
       if (password) formData.append('password', password);
       formData.append('file', selectedFile);
 
-      const res = await fetch('/api/bank-statements/process', {
+      const res = await apiFetch('/api/bank-statements/process', {
         method: 'POST',
         body: formData,
       });
@@ -171,7 +172,7 @@ export const BankConverterWorkflow: React.FC = () => {
   };
 
   const handleDownloadCsv = () => {
-    fetch('/api/bank-statements/export-csv', {
+    apiFetch('/api/bank-statements/export-csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transactions }),
@@ -187,7 +188,7 @@ export const BankConverterWorkflow: React.FC = () => {
   };
 
   const handleDownloadExcel = () => {
-    fetch('/api/bank-statements/export-excel', {
+    apiFetch('/api/bank-statements/export-excel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transactions }),
@@ -203,7 +204,7 @@ export const BankConverterWorkflow: React.FC = () => {
   };
 
   const handleDownloadTallyXml = () => {
-    fetch('/api/bank-statements/export-xml', {
+    apiFetch('/api/bank-statements/export-xml', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bank_name: detectedBankName || 'HDFC Bank', transactions }),

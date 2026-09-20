@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input, Select } from '../../components/ui/Input';
 import { Lock, Mail, ArrowRight, CheckCircle2, Phone, User as UserIcon, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 /* ====================================================================
    SIGN IN PAGE (AUTHENTICATION)
@@ -52,7 +53,7 @@ export const SignInPage: React.FC = () => {
 
     setIsLoading(true);
 
-    fetch('/api/auth/login', {
+    apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
@@ -311,7 +312,7 @@ export const SignUpPage: React.FC = () => {
 
     setIsLoading(true);
 
-    fetch('/api/auth/register', {
+    apiFetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -371,7 +372,7 @@ export const SignUpPage: React.FC = () => {
     setError('');
     setIsLoading(true);
 
-    fetch('/api/auth/verify-email-otp', {
+    apiFetch('/api/auth/verify-email-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId, otp: otpCode }),
@@ -412,7 +413,7 @@ export const SignUpPage: React.FC = () => {
     setError('');
     setIsLoading(true);
 
-    fetch('/api/auth/verify-mobile-otp', {
+    apiFetch('/api/auth/verify-mobile-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId, otp: otpCode }),
@@ -449,7 +450,7 @@ export const SignUpPage: React.FC = () => {
 
     setIsLoading(true);
 
-    fetch(endpoint, {
+    apiFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -826,7 +827,7 @@ export const ForgotPasswordPage: React.FC = () => {
     setError('');
     setIsLoading(true);
 
-    fetch('/api/auth/forgot-password', {
+    apiFetch('/api/auth/forgot-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim().toLowerCase() }),

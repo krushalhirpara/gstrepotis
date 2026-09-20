@@ -5,6 +5,7 @@ import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { Modal } from '../../components/ui/Modal';
 import { Download } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 export const SubscriptionPage: React.FC = () => {
   const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
@@ -27,7 +28,7 @@ export const SubscriptionPage: React.FC = () => {
   ];
 
   useEffect(() => {
-    fetch('/api/subscription/current')
+    apiFetch('/api/subscription/current')
       .then((res) => res.json())
       .then((data) => {
         if (data.current_plan) {
@@ -47,7 +48,7 @@ export const SubscriptionPage: React.FC = () => {
   }, []);
 
   const handleRazorpayPayment = () => {
-    fetch('/api/subscription/create-order', {
+    apiFetch('/api/subscription/create-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plan_slug: selectedPlan, billing_cycle: 'monthly' }),

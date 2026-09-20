@@ -7,6 +7,7 @@ import { Modal } from '../../components/ui/Modal';
 import { FileUpload } from '../../components/ui/ProgressBar';
 import { DataTable, type Column } from '../../components/ui/DataTable';
 import { ArrowRight, Search, Lock, RefreshCw, Download } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 interface TransactionRow {
   id: number;
@@ -112,7 +113,7 @@ export const Home: React.FC = () => {
       if (password) formData.append('password', password);
       if (selectedFile) formData.append('file', selectedFile);
 
-      fetch('/api/bank-statements/process', {
+      apiFetch('/api/bank-statements/process', {
         method: 'POST',
         body: formData,
       })
@@ -134,7 +135,7 @@ export const Home: React.FC = () => {
   };
 
   const handleDownloadCsv = () => {
-    fetch('/api/bank-statements/export-csv', {
+    apiFetch('/api/bank-statements/export-csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transactions: extractedTransactions }),
@@ -150,7 +151,7 @@ export const Home: React.FC = () => {
   };
 
   const handleDownloadTallyXml = () => {
-    fetch('/api/bank-statements/export-xml', {
+    apiFetch('/api/bank-statements/export-xml', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bank_name: selectedBank, transactions: extractedTransactions }),

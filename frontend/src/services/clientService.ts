@@ -1,3 +1,5 @@
+import { apiFetch } from './api';
+
 export interface Client {
   id: number;
   user_id: number;
@@ -63,13 +65,7 @@ export const clientService = {
     if (params?.page) query.append('page', params.page.toString());
     if (params?.per_page) query.append('per_page', params.per_page.toString());
 
-    const token = localStorage.getItem('gst_token');
-    const res = await fetch(`/api/clients?${query.toString()}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
-    });
+    const res = await apiFetch(`/api/clients?${query.toString()}`);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: 'Failed to load client records.' }));
@@ -83,13 +79,7 @@ export const clientService = {
    * Fetch single client details
    */
   async getClient(id: number): Promise<Client> {
-    const token = localStorage.getItem('gst_token');
-    const res = await fetch(`/api/clients/${id}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
-    });
+    const res = await apiFetch(`/api/clients/${id}`);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: 'Client not found or access denied.' }));
@@ -104,13 +94,8 @@ export const clientService = {
    * Create a new client
    */
   async createClient(data: Partial<Client>): Promise<Client> {
-    const token = localStorage.getItem('gst_token');
-    const res = await fetch('/api/clients', {
+    const res = await apiFetch('/api/clients', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
       body: JSON.stringify(data),
     });
 
@@ -126,13 +111,8 @@ export const clientService = {
    * Update an existing client
    */
   async updateClient(id: number, data: Partial<Client>): Promise<Client> {
-    const token = localStorage.getItem('gst_token');
-    const res = await fetch(`/api/clients/${id}`, {
+    const res = await apiFetch(`/api/clients/${id}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
       body: JSON.stringify(data),
     });
 
@@ -148,13 +128,8 @@ export const clientService = {
    * Delete (Soft Delete) a client
    */
   async deleteClient(id: number): Promise<void> {
-    const token = localStorage.getItem('gst_token');
-    const res = await fetch(`/api/clients/${id}`, {
+    const res = await apiFetch(`/api/clients/${id}`, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
     });
 
     if (!res.ok) {
@@ -167,15 +142,11 @@ export const clientService = {
    * Bulk upload clients via CSV / TXT / Excel
    */
   async bulkUploadClients(file: File): Promise<BulkUploadResponse> {
-    const token = localStorage.getItem('gst_token');
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await fetch('/api/clients/bulk-upload', {
+    const res = await apiFetch('/api/clients/bulk-upload', {
       method: 'POST',
-      headers: {
-        Authorization: token ? `Bearer ${token}` : '',
-      },
       body: formData,
     });
 

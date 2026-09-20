@@ -5,6 +5,7 @@ import { DataTable, type Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { FileText, ShoppingCart, CheckCircle2, AlertCircle, ArrowUpRight, Plus } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 interface ActivityItem {
   id: number;
@@ -20,7 +21,7 @@ export const DashboardOverview: React.FC = () => {
   const [widgets, setWidgets] = useState({ total_files: 0, processed_files: 0, failed_files: 0, remaining_credits: 150 });
 
   useEffect(() => {
-    fetch('/api/dashboard/summary')
+    apiFetch('/api/dashboard/summary')
       .then((res) => res.json())
       .then((data) => {
         setActivities(data.recent_activity || []);

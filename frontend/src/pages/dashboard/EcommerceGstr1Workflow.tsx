@@ -6,6 +6,7 @@ import { FileUpload } from '../../components/ui/ProgressBar';
 import { DataTable, type Column } from '../../components/ui/DataTable';
 import { SearchableSelect } from '../../components/ui/Input';
 import { FileJson, FileCode, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 interface B2bRow {
   id: number;
@@ -81,7 +82,7 @@ export const EcommerceGstr1Workflow: React.FC = () => {
   };
 
   const handleDownloadJson = () => {
-    fetch('/api/ecommerce/export-json', {
+    apiFetch('/api/ecommerce/export-json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ b2b: b2bList, b2c: b2cList }),
@@ -99,7 +100,7 @@ export const EcommerceGstr1Workflow: React.FC = () => {
   };
 
   const handleDownloadTallyXml = () => {
-    fetch('/api/ecommerce/export-tally-xml', {
+    apiFetch('/api/ecommerce/export-tally-xml', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ b2b: b2bList }),

@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { Input, Select } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { Users, ShoppingCart, Plus } from 'lucide-react';
+import { apiFetch } from '../../services/api';
 
 export const AdminDashboard: React.FC = () => {
   const [metrics, setMetrics] = useState({
@@ -19,7 +20,7 @@ export const AdminDashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    fetch('/api/admin/metrics')
+    apiFetch('/api/admin/metrics')
       .then((res) => res.json())
       .then((data) => setMetrics(data.metrics))
       .catch(() => {});
@@ -48,14 +49,14 @@ export const AdminUsers: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/api/admin/users')
+    apiFetch('/api/admin/users')
       .then((res) => res.json())
       .then((data) => setUsers(data.users || []))
       .catch(() => {});
   }, []);
 
   const toggleStatus = (id: number) => {
-    fetch(`/api/admin/users/${id}/toggle-status`, {
+    apiFetch(`/api/admin/users/${id}/toggle-status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     })
@@ -105,7 +106,7 @@ export const AdminBanks: React.FC = () => {
   const [newBank, setNewBank] = useState({ name: '', code: '', parser_type: 'pdf_standard' });
 
   useEffect(() => {
-    fetch('/api/admin/banks')
+    apiFetch('/api/admin/banks')
       .then((res) => res.json())
       .then((data) => setBanks(data.banks || []))
       .catch(() => {});
@@ -113,7 +114,7 @@ export const AdminBanks: React.FC = () => {
 
   const handleAdd = () => {
     if (newBank.name && newBank.code) {
-      fetch('/api/admin/banks', {
+      apiFetch('/api/admin/banks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newBank),
@@ -175,7 +176,7 @@ export const AdminMarketplaces: React.FC = () => {
   const [marketplaces, setMarketplaces] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/api/admin/marketplaces')
+    apiFetch('/api/admin/marketplaces')
       .then((res) => res.json())
       .then((data) => setMarketplaces(data.marketplaces || []))
       .catch(() => {});
@@ -205,7 +206,7 @@ export const AdminHsn: React.FC = () => {
   const [newHsn, setNewHsn] = useState({ hsn_code: '', description: '', gst_rate: 18 });
 
   useEffect(() => {
-    fetch('/api/admin/hsn')
+    apiFetch('/api/admin/hsn')
       .then((res) => res.json())
       .then((data) => setHsnList(data.hsn_code || data.hsn_master || []))
       .catch(() => {});
@@ -213,7 +214,7 @@ export const AdminHsn: React.FC = () => {
 
   const handleAdd = () => {
     if (newHsn.hsn_code && newHsn.description) {
-      fetch('/api/admin/hsn', {
+      apiFetch('/api/admin/hsn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newHsn),
@@ -265,7 +266,7 @@ export const AdminAuditLogs: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/api/admin/audit-logs')
+    apiFetch('/api/admin/audit-logs')
       .then((res) => res.json())
       .then((data) => setLogs(data.audit_logs || []))
       .catch(() => {});
