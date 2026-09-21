@@ -148,6 +148,13 @@ async function main() {
         port: PORT,
         host: HOST,
         strictPort: false,
+        allowedHosts: [
+          'gstrepotis.com',
+          'www.gstrepotis.com',
+          '.railway.app',
+          '.up.railway.app',
+          '.laravel.cloud',
+        ],
       },
     });
 
