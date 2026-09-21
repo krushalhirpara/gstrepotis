@@ -18,6 +18,10 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'google_id',
+        'avatar',
+        'provider',
+        'api_token',
         'password',
         'mobile',
         'user_type',
@@ -37,6 +41,7 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'api_token',
     ];
 
     /**

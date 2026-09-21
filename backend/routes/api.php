@@ -16,17 +16,13 @@ use App\Http\Controllers\AdminController;
 |--------------------------------------------------------------------------
 */
 
-// Authentication & OTP Verification System
+// Firebase Google Authentication System
 Route::prefix('auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/verify-email-otp', [AuthController::class, 'verifyEmailOtp']);
-    Route::post('/resend-email-otp', [AuthController::class, 'resendEmailOtp']);
-    Route::post('/verify-mobile-otp', [AuthController::class, 'verifyMobileOtp']);
-    Route::post('/resend-mobile-otp', [AuthController::class, 'resendMobileOtp']);
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/google', [AuthController::class, 'loginWithFirebase']);
+    Route::post('/google/firebase', [AuthController::class, 'loginWithFirebase']);
+    Route::get('/user', [AuthController::class, 'user']);
     Route::get('/profile', [AuthController::class, 'profile']);
+    Route::post('/logout', [AuthController::class, 'logout']);
 });
 
 // Dashboard

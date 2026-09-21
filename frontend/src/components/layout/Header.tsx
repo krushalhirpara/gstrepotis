@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { Drawer } from '../ui/Modal';
 import { ChevronDown, Menu, ArrowRight } from 'lucide-react';
+import { logout } from '../../services/authService';
 
 export const Header: React.FC = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -15,11 +16,9 @@ export const Header: React.FC = () => {
   const user = storedUserRaw ? JSON.parse(storedUserRaw) : null;
   const isLoggedIn = !!token && !!user;
 
-  const handleLogout = () => {
-    localStorage.removeItem('gst_token');
-    localStorage.removeItem('gst_user');
-    localStorage.removeItem('gst_admin_authenticated');
+  const handleLogout = async () => {
     setIsUserDropdownOpen(false);
+    await logout();
     window.location.href = '/sign-in';
   };
 

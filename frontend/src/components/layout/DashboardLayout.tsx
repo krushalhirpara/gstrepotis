@@ -16,32 +16,30 @@ import {
   Menu,
 } from 'lucide-react';
 
+import { logout } from '../../services/authService';
+
 export const DashboardLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const navigate = useNavigate();
   const location = useLocation();
+  const navigate = useNavigate();
 
-  const storedUser = JSON.parse(
-    localStorage.getItem('gst_user') ||
-      '{"name": "Rajesh Sharma (CA)", "email": "demo@gstsuite.com", "user_type": "CA"}'
-  );
+  const storedUserRaw = localStorage.getItem('gst_user');
+  const storedUser = storedUserRaw ? JSON.parse(storedUserRaw) : { name: "Rajesh Sharma (CA)", email: "demo@gstsuite.com", user_type: "CA" };
 
   const navItems = [
-    { label: 'Dashboard Overview', path: '/dashboard', icon: LayoutDashboard, code: '01' },
-    { label: 'Client Management', path: '/clients', icon: Users, code: '02' },
+    { label: 'Overview', path: '/dashboard', icon: LayoutDashboard, code: '01' },
+    { label: 'Client Master', path: '/clients', icon: Users, code: '02' },
     { label: 'Bank Statement Converter', path: '/dashboard/bank-converter', icon: FileText, code: '03' },
-    { label: 'E-Commerce GSTR-1 Engine', path: '/dashboard/ecommerce-gstr1', icon: ShoppingCart, code: '04' },
-    { label: 'Files Archive', path: '/dashboard/files', icon: FolderOpen, code: '05' },
+    { label: 'E-Commerce GSTR-1', path: '/dashboard/ecommerce-gstr1', icon: ShoppingCart, code: '04' },
+    { label: 'Processed Files', path: '/dashboard/files', icon: FolderOpen, code: '05' },
     { label: 'Reports Output', path: '/dashboard/reports', icon: FileSpreadsheet, code: '06' },
     { label: 'Subscription & Billing', path: '/dashboard/subscription', icon: CreditCard, code: '07' },
     { label: 'Profile Settings', path: '/dashboard/profile', icon: User, code: '08' },
     { label: 'Help Desk', path: '/dashboard/support', icon: HelpCircle, code: '09' },
   ];
 
-  const handleLogout = () => {
-    localStorage.removeItem('gst_token');
-    localStorage.removeItem('gst_user');
-    localStorage.removeItem('gst_admin_authenticated');
+  const handleLogout = async () => {
+    await logout();
     navigate('/sign-in');
   };
 
