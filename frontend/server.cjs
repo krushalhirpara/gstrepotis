@@ -103,6 +103,53 @@ function startStaticServer() {
         return;
       }
 
+      // If serving index.html, inject runtime VITE_* environment variables from Node process.env into window.__ENV__
+      if (filePath === indexHtmlPath) {
+        fs.readFile(indexHtmlPath, 'utf8', (readErr, htmlContent) => {
+          if (readErr) {
+            console.error('[Read Error index.html]', readErr);
+            if (!res.headersSent) {
+              res.writeHead(500, { 'Content-Type': 'text/plain' });
+            }
+            res.end('Internal Server Error');
+            return;
+          }
+
+          const runtimeEnv = {};
+          const envKeys = [
+            'VITE_API_URL',
+            'VITE_FIREBASE_API_KEY',
+            'VITE_FIREBASE_AUTH_DOMAIN',
+            'VITE_FIREBASE_PROJECT_ID',
+            'VITE_FIREBASE_STORAGE_BUCKET',
+            'VITE_FIREBASE_MESSAGING_SENDER_ID',
+            'VITE_FIREBASE_APP_ID',
+          ];
+
+          for (const key of envKeys) {
+            const raw = process.env[key];
+            if (typeof raw === 'string') {
+              let trimmed = raw.trim();
+              if (
+                (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+                (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
+              ) {
+                trimmed = trimmed.slice(1, -1).trim();
+              }
+              runtimeEnv[key] = trimmed;
+            }
+          }
+
+          const envScript = `<script>window.__ENV__ = Object.assign(window.__ENV__ || {}, ${JSON.stringify(runtimeEnv)});</script>`;
+          const injectedHtml = htmlContent.includes('</head>')
+            ? htmlContent.replace('</head>', `${envScript}</head>`)
+            : `${envScript}${htmlContent}`;
+
+          res.end(injectedHtml);
+        });
+        return;
+      }
+
       const stream = fs.createReadStream(filePath);
       stream.pipe(res);
       stream.on('error', (streamErr) => {

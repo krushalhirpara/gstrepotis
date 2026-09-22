@@ -1,5 +1,5 @@
 import { signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
-import { auth, googleProvider } from './firebase';
+import { getFirebaseAuth, googleProvider } from './firebase';
 import { apiClient, apiFetch } from './api';
 
 export interface AuthUser {
@@ -27,19 +27,22 @@ export interface AuthResponse {
  * and exchange ID token with Laravel backend.
  */
 export async function signInWithGoogle(): Promise<AuthUser> {
-  // 1. Trigger Firebase Google Popup
+  // 1. Obtain clean Firebase Auth instance
+  const auth = getFirebaseAuth();
+
+  // 2. Trigger Firebase Google Popup
   const userCredential = await signInWithPopup(auth, googleProvider);
   const firebaseUser = userCredential.user;
 
-  // 2. Obtain fresh Firebase ID Token
+  // 3. Obtain fresh Firebase ID Token
   const idToken = await firebaseUser.getIdToken(true);
 
-  // 3. Send Firebase ID token to backend for server-side verification and user login/creation
+  // 4. Send Firebase ID token to backend for server-side verification and user login/creation
   const response: AuthResponse = await apiClient.post('/api/auth/google', {
     id_token: idToken,
   });
 
-  // 4. Store authenticated session and user info
+  // 5. Store authenticated session and user info
   if (response.access_token) {
     localStorage.setItem('gst_token', response.access_token);
   }
@@ -55,6 +58,7 @@ export async function signInWithGoogle(): Promise<AuthUser> {
  */
 export async function logout(): Promise<void> {
   try {
+    const auth = getFirebaseAuth();
     await firebaseSignOut(auth);
   } catch (err) {
     console.warn('Firebase signout warning:', err);
