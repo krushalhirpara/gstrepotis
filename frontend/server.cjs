@@ -143,6 +143,16 @@ function startStaticServer() {
             }
           }
 
+          // Ensure VITE_API_URL is sanitized and defaults cleanly to production backend
+          const rawApiUrl = runtimeEnv['VITE_API_URL'] || process.env.VITE_API_URL || '';
+          let cleanApiUrl = typeof rawApiUrl === 'string' ? rawApiUrl.trim().replace(/^[\u00A0\s]+|[\u00A0\s]+$/g, '') : '';
+          const urlQuotePattern = /^["'`“”‘’](.*)["'`“”‘’]$/;
+          while (urlQuotePattern.test(cleanApiUrl)) {
+            cleanApiUrl = cleanApiUrl.replace(urlQuotePattern, '$1').trim();
+          }
+          cleanApiUrl = cleanApiUrl.replace(/\/+$/, '');
+          runtimeEnv['VITE_API_URL'] = cleanApiUrl || 'https://api.gstrepotis.com';
+
           // Ensure VITE_FIREBASE_AUTH_DOMAIN is sanitized and never left invalid
           const rawAuthDomain = runtimeEnv['VITE_FIREBASE_AUTH_DOMAIN'] || '';
           let cleanAuthDomain = rawAuthDomain.replace(/^https?:\/\//i, '').split('/')[0].trim();

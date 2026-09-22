@@ -9,22 +9,63 @@
  * - Overridden by:      import.meta.env.VITE_API_URL
  */
 
-// Central API Base URL
-export const API_BASE_URL: string = (
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:8000' : 'https://api.gstrepotis.com')
-).replace(/\/+$/, '');
+/**
+ * Safely sanitizes an API URL string:
+ * - Trims whitespace and non-breaking spaces
+ * - Strips quotes (", ', `) and trailing slashes
+ */
+export function sanitizeApiUrl(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let val = raw.trim().replace(/^[\u00A0\s]+|[\u00A0\s]+$/g, '');
+  const quotePattern = /^["'`“”‘’](.*)["'`“”‘’]$/;
+  while (quotePattern.test(val)) {
+    val = val.replace(quotePattern, '$1').trim();
+  }
+  if (val.startsWith('\\"') && val.endsWith('\\"') && val.length >= 4) {
+    val = val.slice(2, -2).trim();
+  }
+  if (val.endsWith(',') || val.endsWith(';')) {
+    val = val.slice(0, -1).trim();
+  }
+  return val.replace(/\/+$/, '');
+}
+
+/**
+ * Resolves the active API Base URL:
+ * 1. Runtime window.__ENV__.VITE_API_URL (injected by server.cjs in production)
+ * 2. Static build-time import.meta.env.VITE_API_URL
+ * 3. Fallback: 'http://localhost:8000' in DEV, 'https://api.gstrepotis.com' in PROD
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    const runtimeUrl = sanitizeApiUrl((window as unknown as { __ENV__?: { VITE_API_URL?: string } }).__ENV__?.VITE_API_URL);
+    if (runtimeUrl) {
+      return runtimeUrl;
+    }
+  }
+
+  const buildUrl = sanitizeApiUrl(import.meta.env.VITE_API_URL);
+  if (buildUrl) {
+    return buildUrl;
+  }
+
+  return import.meta.env.DEV ? 'http://localhost:8000' : 'https://api.gstrepotis.com';
+}
+
+// Central API Base URL (dynamic fallback)
+export const API_BASE_URL: string = getApiBaseUrl();
 
 /**
  * Construct absolute API URL for a given relative endpoint path
  */
 export function getApiUrl(endpoint: string): string {
-  if (!endpoint) return API_BASE_URL;
+  const baseUrl = getApiBaseUrl();
+  if (!endpoint) return baseUrl;
   if (/^https?:\/\//i.test(endpoint)) {
     return endpoint;
   }
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  return `${API_BASE_URL}${cleanEndpoint}`;
+  return `${baseUrl}${cleanEndpoint}`;
 }
 
 /**
@@ -56,6 +97,16 @@ export async function apiFetch(
   options: ApiRequestOptions = {}
 ): Promise<Response> {
   const url = getApiUrl(endpoint);
+  const baseUrl = getApiBaseUrl();
+
+  // Temporary production-safe diagnostic logging (NEVER logs tokens or secrets)
+  console.info('[API Request Safe Diagnostic]', {
+    apiBaseUrl: baseUrl,
+    requestUrl: url,
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    hostname: typeof window !== 'undefined' ? window.location.hostname : '',
+  });
+
   const headers = new Headers(options.headers || {});
 
   // Attach authorization token unless explicitly skipped

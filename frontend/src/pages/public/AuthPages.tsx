@@ -4,6 +4,7 @@ import { Card } from '../../components/ui/Card';
 import { ShieldCheck, CheckCircle2, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { signInWithGoogle } from '../../services/authService';
 import { getSafeFirebaseDiagnostic } from '../../services/firebase';
+import { getApiBaseUrl } from '../../services/api';
 
 /* ====================================================================
    OFFICIAL GOOGLE "G" LOGO SVG COMPONENT
@@ -111,6 +112,15 @@ function formatAuthError(err: any): string {
       return `Firebase API key error: Key does not start with 'AIza' (length: ${diag.apiKey.length}). Please copy the exact apiKey from Firebase Console.`;
     }
     return `Google rejected the Firebase API key (length: ${diag.apiKey.length}, startsWithAIza: true, source: ${diag.apiKey.source}). Please verify in Firebase Console (Project: gstrepotis -> Web App: GSTSUITES) that this exact Web API Key is active and has Identity Toolkit API enabled.`;
+  }
+
+  if (
+    errorMessage.toLowerCase().includes('failed to fetch') ||
+    errorMessage.toLowerCase().includes('err_name_not_resolved') ||
+    errorCode === 'ERR_NAME_NOT_RESOLVED'
+  ) {
+    const apiUrl = getApiBaseUrl();
+    return `Network DNS connection error (ERR_NAME_NOT_RESOLVED / Failed to fetch): Could not connect to backend server at '${apiUrl}'. The DNS record for api.gstrepotis.com was recently pointed to Cloudflare and may be temporarily cached by your local ISP/network resolver. Fixes: 1) Run 'ipconfig /flushdns' in Command Prompt, 2) Switch your device DNS to Cloudflare (1.1.1.1) or Google (8.8.8.8), or 3) Allow DNS cache to refresh.`;
   }
 
   return errorMessage || 'Unable to authenticate with Google. Please try again.';
