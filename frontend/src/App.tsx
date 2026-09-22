@@ -16,6 +16,9 @@ import { CeoAdminLogin } from './pages/admin/CeoAdminLogin';
 import { ClientListPage } from './pages/clients/ClientListPage';
 import { ClientDetailPage } from './pages/clients/ClientDetailPage';
 
+import { GstAuditDashboard } from './pages/audit/GstAuditDashboard';
+import { GstAuditWorkspace } from './pages/audit/GstAuditWorkspace';
+
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { DashboardOverview } from './pages/dashboard/DashboardOverview';
 import { BankConverterWorkflow } from './pages/dashboard/BankConverterWorkflow';
@@ -169,6 +172,19 @@ export const App: React.FC = () => {
             >
               <Route index element={<ClientListPage />} />
               <Route path=":id" element={<ClientDetailPage />} />
+            </Route>
+
+            {/* Protected GST Audit & Reconciliation Workspace Module Routes */}
+            <Route
+              path="/gst-audit"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<GstAuditDashboard />} />
+              <Route path=":auditId/*" element={<GstAuditWorkspace />} />
             </Route>
 
             {/* Protected Bank Statement Converter Quick Route */}

@@ -14,6 +14,7 @@ import {
   HelpCircle,
   LogOut,
   Menu,
+  ShieldCheck,
 } from 'lucide-react';
 
 import { logout } from '../../services/authService';
@@ -29,13 +30,14 @@ export const DashboardLayout: React.FC = () => {
   const navItems = [
     { label: 'Overview', path: '/dashboard', icon: LayoutDashboard, code: '01' },
     { label: 'Client Master', path: '/clients', icon: Users, code: '02' },
-    { label: 'Bank Statement Converter', path: '/dashboard/bank-converter', icon: FileText, code: '03' },
-    { label: 'E-Commerce GSTR-1', path: '/dashboard/ecommerce-gstr1', icon: ShoppingCart, code: '04' },
-    { label: 'Processed Files', path: '/dashboard/files', icon: FolderOpen, code: '05' },
-    { label: 'Reports Output', path: '/dashboard/reports', icon: FileSpreadsheet, code: '06' },
-    { label: 'Subscription & Billing', path: '/dashboard/subscription', icon: CreditCard, code: '07' },
-    { label: 'Profile Settings', path: '/dashboard/profile', icon: User, code: '08' },
-    { label: 'Help Desk', path: '/dashboard/support', icon: HelpCircle, code: '09' },
+    { label: 'GST Audit', path: '/gst-audit', icon: ShieldCheck, code: '03' },
+    { label: 'Bank Statement Converter', path: '/dashboard/bank-converter', icon: FileText, code: '04' },
+    { label: 'E-Commerce GSTR-1', path: '/dashboard/ecommerce-gstr1', icon: ShoppingCart, code: '05' },
+    { label: 'Processed Files', path: '/dashboard/files', icon: FolderOpen, code: '06' },
+    { label: 'Reports Output', path: '/dashboard/reports', icon: FileSpreadsheet, code: '07' },
+    { label: 'Subscription & Billing', path: '/dashboard/subscription', icon: CreditCard, code: '08' },
+    { label: 'Profile Settings', path: '/dashboard/profile', icon: User, code: '09' },
+    { label: 'Help Desk', path: '/dashboard/support', icon: HelpCircle, code: '10' },
   ];
 
   const handleLogout = async () => {

@@ -9,6 +9,7 @@ use App\Http\Controllers\ClientController;
 use App\Http\Controllers\FileManagerController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\GstAuditController;
 
 /*
 |--------------------------------------------------------------------------
@@ -81,3 +82,44 @@ Route::prefix('admin')->group(function () {
     Route::post('/hsn', [AdminController::class, 'addHsn']);
     Route::get('/audit-logs', [AdminController::class, 'getAuditLogs']);
 });
+
+// GST Audit & Reconciliation Workspace Module (Protected with auth.token)
+Route::middleware('auth.token')->prefix('gst-audits')->group(function () {
+    Route::get('/', [GstAuditController::class, 'index']);
+    Route::post('/', [GstAuditController::class, 'store']);
+    Route::get('/{id}', [GstAuditController::class, 'show']);
+    Route::put('/{id}', [GstAuditController::class, 'update']);
+    Route::delete('/{id}', [GstAuditController::class, 'destroy']);
+
+    // File Management & Upload
+    Route::post('/{id}/files', [GstAuditController::class, 'uploadFile']);
+    Route::get('/{id}/files', [GstAuditController::class, 'listFiles']);
+    Route::delete('/{id}/files/{fileId}', [GstAuditController::class, 'deleteFile']);
+
+    // Process reconciliation & rule engine
+    Route::post('/{id}/process', [GstAuditController::class, 'processAudit']);
+
+    // Analytics & Recon Views
+    Route::get('/{id}/summary', [GstAuditController::class, 'getSummary']);
+    Route::get('/{id}/reconciliation', [GstAuditController::class, 'getReconciliations']);
+    Route::get('/{id}/itc', [GstAuditController::class, 'getItcAnalysis']);
+
+    // Exceptions & Review
+    Route::get('/{id}/exceptions', [GstAuditController::class, 'getExceptions']);
+    Route::patch('/{id}/exceptions/{exceptionId}', [GstAuditController::class, 'updateException']);
+    Route::post('/{id}/exceptions/bulk', [GstAuditController::class, 'bulkUpdateExceptions']);
+
+    // Audit Checklist
+    Route::get('/{id}/checklist', [GstAuditController::class, 'getChecklist']);
+    Route::patch('/{id}/checklist/{itemId}', [GstAuditController::class, 'updateChecklistItem']);
+
+    // CA Working Papers
+    Route::get('/{id}/working-papers', [GstAuditController::class, 'getWorkingPapers']);
+    Route::post('/{id}/working-papers', [GstAuditController::class, 'storeWorkingPaper']);
+    Route::delete('/{id}/working-papers/{wpId}', [GstAuditController::class, 'deleteWorkingPaper']);
+
+    // Reports & Exports
+    Route::get('/{id}/report', [GstAuditController::class, 'getReport']);
+    Route::get('/{id}/export/csv', [GstAuditController::class, 'exportCsv']);
+});
+
