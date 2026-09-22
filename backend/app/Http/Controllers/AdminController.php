@@ -6,40 +6,188 @@ use App\Models\User;
 use App\Models\HsnMaster;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class AdminController extends Controller
 {
+    /**
+     * CEO Admin Authentication
+     * POST /api/admin/login
+     */
+    public function login(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|string',
+        ]);
+
+        $email = strtolower(trim($request->email));
+        $password = $request->password;
+
+        if ($email !== 'krushalhirapra12@gmail.com' || $password !== 'Krushal@2807') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid Owner credentials. Access Denied.',
+            ], 401);
+        }
+
+        // Find or create admin user record
+        $user = User::where('email', $email)->first();
+        $token = bin2hex(random_bytes(32));
+
+        if (!$user) {
+            $user = User::create([
+                'name' => 'Krushal Hirpara',
+                'email' => $email,
+                'user_type' => 'Admin',
+                'is_admin' => 1,
+                'status' => 'active',
+                'account_status' => 'active',
+                'credits' => 99999,
+                'api_token' => $token,
+                'email_verified_at' => now(),
+            ]);
+        } else {
+            $user->update([
+                'is_admin' => 1,
+                'user_type' => 'Admin',
+                'status' => 'active',
+                'account_status' => 'active',
+                'api_token' => $token,
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'CEO Admin authenticated successfully.',
+            'token' => $token,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'user_type' => 'Admin',
+                'is_admin' => 1,
+                'status' => $user->status,
+                'credits' => $user->credits,
+            ],
+        ]);
+    }
+
+    /**
+     * Get Real-time Metrics across all Main Panel modules
+     * GET /api/admin/metrics
+     */
     public function getMetrics()
     {
-        $totalUsers = DB::table('users')->where('is_admin', 0)->count();
-        $activeUsers = DB::table('users')->where('is_admin', 0)->where('status', 'active')->count();
-        $trialUsers = DB::table('users')->where('is_admin', 0)->where('credits', '<=', 50)->count();
+        // 1. Total Registered Users (count non-admins, or all users if none)
+        $totalUsers = DB::table('users')->where(function ($q) {
+            $q->where('is_admin', 0)
+              ->orWhere('is_admin', false)
+              ->orWhereNull('is_admin');
+        })->count();
 
-        $filesProcessed = DB::table('bank_statements')->where('processing_status', 'completed')->count() +
-                          DB::table('marketplace_files')->where('status', 'completed')->count();
+        // Fallback to all registered users if 0 non-admins
+        if ($totalUsers === 0) {
+            $totalUsers = DB::table('users')->count();
+        }
 
-        $processingFailures = DB::table('bank_statements')->where('processing_status', 'failed')->count() +
-                              DB::table('marketplace_files')->where('status', 'failed')->count();
+        $activeUsers = DB::table('users')->where('status', 'active')->count();
+        $trialUsers = DB::table('users')->where('credits', '<=', 50)->count();
 
-        $activeSubs = DB::table('users')->where('is_admin', 0)->where('credits', '>', 50)->count();
-        $revenue = $activeSubs * 999;
+        // 2. Client Master Records
+        $totalClients = 0;
+        if (Schema::hasTable('clients')) {
+            $totalClients = DB::table('clients')->count();
+        }
+
+        // 3. Bank Statement Files
+        $bankCompleted = 0;
+        $bankFailed = 0;
+        if (Schema::hasTable('bank_statements')) {
+            $bankCompleted = DB::table('bank_statements')->where('processing_status', 'completed')->count();
+            $bankFailed = DB::table('bank_statements')->where('processing_status', 'failed')->count();
+        }
+
+        // 4. Marketplace Files (E-Commerce GSTR-1)
+        $marketCompleted = 0;
+        $marketFailed = 0;
+        if (Schema::hasTable('marketplace_files')) {
+            $marketCompleted = DB::table('marketplace_files')->where('status', 'completed')->count();
+            $marketFailed = DB::table('marketplace_files')->where('status', 'failed')->count();
+        }
+
+        // 5. GST Audit Module Cases & Files
+        $auditCases = 0;
+        $auditFilesCompleted = 0;
+        $auditFilesFailed = 0;
+        if (Schema::hasTable('gst_audits')) {
+            $auditCases = DB::table('gst_audits')->count();
+        }
+        if (Schema::hasTable('gst_audit_files')) {
+            $auditFilesCompleted = DB::table('gst_audit_files')->whereIn('status', ['completed', 'processed'])->count();
+            $auditFilesFailed = DB::table('gst_audit_files')->where('status', 'failed')->count();
+        }
+
+        // Aggregated files and failures
+        $filesProcessed = $bankCompleted + $marketCompleted + $auditFilesCompleted;
+        $processingFailures = $bankFailed + $marketFailed + $auditFilesFailed;
+
+        // Subscriptions & Revenue
+        $activeSubs = 0;
+        if (Schema::hasTable('subscriptions')) {
+            $activeSubs = DB::table('subscriptions')->where('status', 'active')->count();
+        }
+        if ($activeSubs === 0) {
+            $activeSubs = DB::table('users')->where('credits', '>', 50)->count();
+        }
+
+        $totalRevenue = 0;
+        if (Schema::hasTable('payments')) {
+            $totalRevenue = DB::table('payments')->where('status', 'success')->sum('amount');
+        }
+        if ($totalRevenue == 0 && $activeSubs > 0) {
+            $totalRevenue = $activeSubs * 999;
+        }
+
+        // Health Rate
+        $totalAttempts = $filesProcessed + $processingFailures;
+        $healthRate = $totalAttempts > 0 
+            ? number_format((($filesProcessed / $totalAttempts) * 100), 2) . '%'
+            : '100%';
 
         return response()->json([
             'metrics' => [
                 'total_users' => $totalUsers,
                 'active_users' => $activeUsers,
                 'trial_users' => $trialUsers,
-                'total_revenue' => '₹' . number_format($revenue),
+                'total_clients' => $totalClients,
+                'total_revenue' => '₹' . number_format($totalRevenue),
                 'files_processed' => $filesProcessed,
                 'processing_failures' => $processingFailures,
                 'active_subscriptions' => $activeSubs,
+                'health_rate' => $healthRate,
+                'breakdown' => [
+                    'bank_statements' => $bankCompleted,
+                    'marketplace_reports' => $marketCompleted,
+                    'gst_audit_cases' => $auditCases,
+                    'gst_audit_files' => $auditFilesCompleted,
+                    'clients' => $totalClients,
+                ],
             ],
         ]);
     }
 
+    /**
+     * Get All Registered Users
+     * GET /api/admin/users
+     */
     public function getUsers()
     {
-        $users = DB::table('users')->select('id', 'name', 'email', 'mobile', 'user_type', 'is_admin', 'credits', 'status', 'created_at')->get();
+        $users = DB::table('users')
+            ->orderBy('id', 'desc')
+            ->select('id', 'name', 'email', 'mobile', 'user_type', 'is_admin', 'credits', 'status', 'created_at')
+            ->get();
+
         return response()->json(['users' => $users]);
     }
 

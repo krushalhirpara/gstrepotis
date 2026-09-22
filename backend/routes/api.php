@@ -72,6 +72,7 @@ Route::prefix('subscription')->group(function () {
 
 // Admin Control Panel
 Route::prefix('admin')->group(function () {
+    Route::post('/login', [AdminController::class, 'login']);
     Route::get('/metrics', [AdminController::class, 'getMetrics']);
     Route::get('/users', [AdminController::class, 'getUsers']);
     Route::post('/users/{id}/toggle-status', [AdminController::class, 'toggleUserStatus']);

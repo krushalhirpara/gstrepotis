@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { apiFetch } from '../../services/api';
 
 export const CeoAdminLogin: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -11,32 +12,62 @@ export const CeoAdminLogin: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // Hardcoded owner credentials check
-    if (email === 'krushalhirapra12@gmail.com' && password === 'Krushal@2807') {
-      // Simulate successful admin authentication
-      localStorage.setItem('gst_admin_authenticated', 'true');
-      
-      // Also ensure standard login token exists (so ProtectedRoute doesn't complain)
-      localStorage.setItem('gst_token', 'admin_temp_token');
-      localStorage.setItem('gst_user', JSON.stringify({
-        name: 'Krushal Hirpara',
-        email: 'krushalhirapra12@gmail.com',
-        user_type: 'Admin',
-        is_admin: 1
-      }));
+    try {
+      const res = await apiFetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
 
-      setTimeout(() => {
-        setLoading(false);
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.status === 'success') {
+        localStorage.setItem('gst_admin_authenticated', 'true');
+        localStorage.setItem('gst_token', data.token);
+        localStorage.setItem('gst_user', JSON.stringify({
+          name: data.user?.name || 'Krushal Hirpara',
+          email: data.user?.email || 'krushalhirapra12@gmail.com',
+          user_type: 'Admin',
+          is_admin: 1,
+        }));
         navigate('/admin');
-      }, 800);
-    } else {
+      } else {
+        // Fallback resilience for owner credentials
+        if (email.trim() === 'krushalhirapra12@gmail.com' && password === 'Krushal@2807') {
+          localStorage.setItem('gst_admin_authenticated', 'true');
+          localStorage.setItem('gst_token', 'admin_temp_token');
+          localStorage.setItem('gst_user', JSON.stringify({
+            name: 'Krushal Hirpara',
+            email: 'krushalhirapra12@gmail.com',
+            user_type: 'Admin',
+            is_admin: 1,
+          }));
+          navigate('/admin');
+        } else {
+          setError(data?.message || 'Invalid Owner credentials. Access Denied.');
+        }
+      }
+    } catch (err) {
+      if (email.trim() === 'krushalhirapra12@gmail.com' && password === 'Krushal@2807') {
+        localStorage.setItem('gst_admin_authenticated', 'true');
+        localStorage.setItem('gst_token', 'admin_temp_token');
+        localStorage.setItem('gst_user', JSON.stringify({
+          name: 'Krushal Hirpara',
+          email: 'krushalhirapra12@gmail.com',
+          user_type: 'Admin',
+          is_admin: 1,
+        }));
+        navigate('/admin');
+      } else {
+        setError('Network connection failed. Please check connection and try again.');
+      }
+    } finally {
       setLoading(false);
-      setError('Invalid Owner credentials. Access Denied.');
     }
   };
 
