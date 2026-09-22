@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
 import { ShieldCheck, CheckCircle2, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 import { signInWithGoogle } from '../../services/authService';
+import { getSafeFirebaseDiagnostic } from '../../services/firebase';
 
 /* ====================================================================
    OFFICIAL GOOGLE "G" LOGO SVG COMPONENT
@@ -65,6 +66,46 @@ export const GoogleAuthButton: React.FC<GoogleButtonProps> = ({
 };
 
 /* ====================================================================
+   SAFE ERROR FORMATTER
+   ==================================================================== */
+function formatAuthError(err: any): string {
+  const errorCode = err?.code || '';
+  const errorMessage = err?.message || '';
+
+  if (
+    errorCode === 'auth/popup-closed-by-user' ||
+    errorCode === 'auth/cancelled-popup-request'
+  ) {
+    return 'Authentication cancelled. Please click the button below to try again.';
+  }
+
+  if (errorCode === 'auth/network-request-failed') {
+    return 'Network error. Please check your internet connection and try again.';
+  }
+
+  if (
+    errorCode === 'auth/invalid-api-key' ||
+    errorCode.includes('api-key-not-valid') ||
+    errorMessage.toLowerCase().includes('api-key-not-valid') ||
+    errorMessage.toLowerCase().includes('api key not valid')
+  ) {
+    const diag = getSafeFirebaseDiagnostic();
+    if (diag.apiKey.isPlaceholder) {
+      return "Firebase configuration error: The API key in environment variables is a placeholder ('AIzaSy...'). Please update VITE_FIREBASE_API_KEY with your real Web App API key from Firebase Console (Project: gstrepotis).";
+    }
+    if (!diag.apiKey.exists) {
+      return 'Firebase configuration error: VITE_FIREBASE_API_KEY is not set or empty in environment variables. Please configure it in your Railway dashboard.';
+    }
+    if (!diag.apiKey.startsWithAIza) {
+      return `Firebase API key error: Key does not start with 'AIza' (length: ${diag.apiKey.length}). Please copy the exact apiKey from Firebase Console.`;
+    }
+    return `Google rejected the Firebase API key (length: ${diag.apiKey.length}, startsWithAIza: true, source: ${diag.apiKey.source}). Please verify in Firebase Console (Project: gstrepotis -> Web App: GSTSUITES) that this exact Web API Key is active and has Identity Toolkit API enabled.`;
+  }
+
+  return errorMessage || 'Unable to authenticate with Google. Please try again.';
+}
+
+/* ====================================================================
    SIGN IN PAGE (GOOGLE-ONLY AUTHENTICATION)
    ==================================================================== */
 export const SignInPage: React.FC = () => {
@@ -91,20 +132,7 @@ export const SignInPage: React.FC = () => {
     } catch (err: any) {
       setIsLoading(false);
       console.error('Google Sign-in error:', err);
-
-      const errorCode = err?.code || '';
-      if (
-        errorCode === 'auth/popup-closed-by-user' ||
-        errorCode === 'auth/cancelled-popup-request'
-      ) {
-        setError('Sign-in cancelled. Please click the button below to try again.');
-      } else if (errorCode === 'auth/network-request-failed') {
-        setError('Network error. Please check your internet connection and try again.');
-      } else if (err?.message) {
-        setError(err.message);
-      } else {
-        setError('Unable to sign in with Google. Please try again.');
-      }
+      setError(formatAuthError(err));
     }
   };
 
@@ -203,20 +231,7 @@ export const SignUpPage: React.FC = () => {
     } catch (err: any) {
       setIsLoading(false);
       console.error('Google Sign-up error:', err);
-
-      const errorCode = err?.code || '';
-      if (
-        errorCode === 'auth/popup-closed-by-user' ||
-        errorCode === 'auth/cancelled-popup-request'
-      ) {
-        setError('Sign-up cancelled. Please click the button below to try again.');
-      } else if (errorCode === 'auth/network-request-failed') {
-        setError('Network error. Please check your internet connection and try again.');
-      } else if (err?.message) {
-        setError(err.message);
-      } else {
-        setError('Unable to sign up with Google. Please try again.');
-      }
+      setError(formatAuthError(err));
     }
   };
 

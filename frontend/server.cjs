@@ -96,9 +96,8 @@ function startStaticServer() {
         headers['Cache-Control'] = 'no-cache';
       }
 
-      res.writeHead(200, headers);
-
       if (req.method === 'HEAD') {
+        res.writeHead(200, headers);
         res.end();
         return;
       }
@@ -129,14 +128,18 @@ function startStaticServer() {
           for (const key of envKeys) {
             const raw = process.env[key];
             if (typeof raw === 'string') {
-              let trimmed = raw.trim();
-              if (
-                (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
-                (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)
-              ) {
-                trimmed = trimmed.slice(1, -1).trim();
+              let val = raw.trim().replace(/^[\u00A0\s]+|[\u00A0\s]+$/g, '');
+              const quotePattern = /^["'`“”‘’](.*)["'`“”‘’]$/;
+              while (quotePattern.test(val)) {
+                val = val.replace(quotePattern, '$1').trim();
               }
-              runtimeEnv[key] = trimmed;
+              if (val.startsWith('\\"') && val.endsWith('\\"') && val.length >= 4) {
+                val = val.slice(2, -2).trim();
+              }
+              if (val.endsWith(',') || val.endsWith(';')) {
+                val = val.slice(0, -1).trim();
+              }
+              runtimeEnv[key] = val;
             }
           }
 
@@ -145,11 +148,15 @@ function startStaticServer() {
             ? htmlContent.replace('</head>', `${envScript}</head>`)
             : `${envScript}${htmlContent}`;
 
-          res.end(injectedHtml);
+          const htmlBuffer = Buffer.from(injectedHtml, 'utf8');
+          headers['Content-Length'] = htmlBuffer.length;
+          res.writeHead(200, headers);
+          res.end(htmlBuffer);
         });
         return;
       }
 
+      res.writeHead(200, headers);
       const stream = fs.createReadStream(filePath);
       stream.pipe(res);
       stream.on('error', (streamErr) => {
