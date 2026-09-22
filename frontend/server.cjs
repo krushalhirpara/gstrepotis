@@ -64,7 +64,7 @@ function startStaticServer() {
     let pathname = decodeURIComponent(parsedUrl.pathname);
 
     // Security: prevent directory traversal
-    const safePath = path.normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
+    const safePath = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '');
     let filePath = path.join(DIST_DIR, safePath);
 
     fs.stat(filePath, (err, stats) => {
@@ -142,6 +142,15 @@ function startStaticServer() {
               runtimeEnv[key] = val;
             }
           }
+
+          // Ensure VITE_FIREBASE_AUTH_DOMAIN is sanitized and never left invalid
+          const rawAuthDomain = runtimeEnv['VITE_FIREBASE_AUTH_DOMAIN'] || '';
+          let cleanAuthDomain = rawAuthDomain.replace(/^https?:\/\//i, '').split('/')[0].trim();
+          if (!cleanAuthDomain || cleanAuthDomain === 'gstrepotis.com' || cleanAuthDomain === 'www.gstrepotis.com') {
+            const projId = runtimeEnv['VITE_FIREBASE_PROJECT_ID'] || 'gstrepotis';
+            cleanAuthDomain = `${projId}.firebaseapp.com`;
+          }
+          runtimeEnv['VITE_FIREBASE_AUTH_DOMAIN'] = cleanAuthDomain;
 
           const envScript = `<script>window.__ENV__ = Object.assign(window.__ENV__ || {}, ${JSON.stringify(runtimeEnv)});</script>`;
           const injectedHtml = htmlContent.includes('</head>')

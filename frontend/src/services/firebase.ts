@@ -114,14 +114,43 @@ export function resolveConfigField(key: keyof typeof buildTimeEnv): {
 }
 
 /**
+ * Sanitizes and validates the authDomain:
+ * - Strips protocol (https:// or http://)
+ * - Strips trailing slashes or subpaths
+ * - If empty or accidentally configured as the application domain (e.g. gstrepotis.com),
+ *   resolves to '<projectId>.firebaseapp.com' because Firebase Auth handler is hosted on firebaseapp.com,
+ *   not on the custom Railway frontend server.
+ */
+export function sanitizeAuthDomain(rawDomain: string, projectId: string): string {
+  let domain = (rawDomain || '').trim();
+  // Strip protocol if accidentally included (e.g., https:// or http://)
+  domain = domain.replace(/^https?:\/\//i, '');
+  // Strip path or trailing slash if present (e.g., gstrepotis.firebaseapp.com/ or /__/... )
+  domain = domain.split('/')[0].trim();
+
+  // If domain is empty or was mistakenly set to the application web domain (e.g. gstrepotis.com or www.gstrepotis.com)
+  // instead of the Firebase Auth handler domain, resolve to the correct Firebase Auth domain:
+  if (!domain || domain === 'gstrepotis.com' || domain === 'www.gstrepotis.com') {
+    const proj = projectId || 'gstrepotis';
+    return `${proj}.firebaseapp.com`;
+  }
+
+  return domain;
+}
+
+/**
  * Exact Firebase Configuration for project gstrepotis.
  * Strict mappings with NO hardcoded fallbacks or placeholders.
  */
 export function getFirebaseConfig() {
+  const projectId = resolveConfigField('VITE_FIREBASE_PROJECT_ID').value || 'gstrepotis';
+  const rawAuthDomain = resolveConfigField('VITE_FIREBASE_AUTH_DOMAIN').value;
+  const authDomain = sanitizeAuthDomain(rawAuthDomain, projectId);
+
   return {
     apiKey: resolveConfigField('VITE_FIREBASE_API_KEY').value,
-    authDomain: resolveConfigField('VITE_FIREBASE_AUTH_DOMAIN').value,
-    projectId: resolveConfigField('VITE_FIREBASE_PROJECT_ID').value,
+    authDomain,
+    projectId,
     storageBucket: resolveConfigField('VITE_FIREBASE_STORAGE_BUCKET').value,
     messagingSenderId: resolveConfigField('VITE_FIREBASE_MESSAGING_SENDER_ID').value,
     appId: resolveConfigField('VITE_FIREBASE_APP_ID').value,
@@ -140,8 +169,10 @@ export interface SafeFirebaseDiagnostic {
   };
   authDomain: {
     value: string;
+    raw: string;
     exists: boolean;
     source: string;
+    isCorrectFirebaseDomain: boolean;
   };
   projectId: {
     value: string;
@@ -164,6 +195,10 @@ export interface SafeFirebaseDiagnostic {
     startsWithOneColon: boolean;
     source: string;
   };
+  browser: {
+    hostname: string;
+    origin: string;
+  };
 }
 
 /**
@@ -179,6 +214,8 @@ export function getSafeFirebaseDiagnostic(): SafeFirebaseDiagnostic {
   const appIdRes = resolveConfigField('VITE_FIREBASE_APP_ID');
 
   const keyVal = apiKeyRes.value;
+  const projectId = projectIdRes.value || 'gstrepotis';
+  const cleanAuthDomain = sanitizeAuthDomain(authDomainRes.value, projectId);
 
   return {
     apiKey: {
@@ -191,9 +228,11 @@ export function getSafeFirebaseDiagnostic(): SafeFirebaseDiagnostic {
       hasWhitespace: apiKeyRes.meta.hasWhitespace,
     },
     authDomain: {
-      value: authDomainRes.value,
-      exists: Boolean(authDomainRes.value),
+      value: cleanAuthDomain,
+      raw: authDomainRes.value,
+      exists: Boolean(cleanAuthDomain),
       source: authDomainRes.source,
+      isCorrectFirebaseDomain: cleanAuthDomain.endsWith('.firebaseapp.com'),
     },
     projectId: {
       value: projectIdRes.value,
@@ -215,6 +254,10 @@ export function getSafeFirebaseDiagnostic(): SafeFirebaseDiagnostic {
       length: appIdRes.value.length,
       startsWithOneColon: appIdRes.value.startsWith('1:'),
       source: appIdRes.source,
+    },
+    browser: {
+      hostname: typeof window !== 'undefined' ? window.location.hostname : '',
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
     },
   };
 }
@@ -289,6 +332,7 @@ if (typeof window !== 'undefined') {
         startsWithOneColon: diagnostic.appId.startsWithOneColon,
         source: diagnostic.appId.source,
       },
+      browser: diagnostic.browser,
     });
 
     const config = getFirebaseConfig();

@@ -84,6 +84,17 @@ function formatAuthError(err: any): string {
   }
 
   if (
+    errorCode === 'auth/unauthorized-domain' ||
+    errorCode.includes('unauthorized-domain') ||
+    errorMessage.toLowerCase().includes('unauthorized-domain') ||
+    errorMessage.toLowerCase().includes('unauthorized domain')
+  ) {
+    const diag = getSafeFirebaseDiagnostic();
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+    return `Firebase domain authorization error (auth/unauthorized-domain): The domain '${currentHost}' is not authorized for the Firebase project linked to your API key (Configured authDomain: '${diag.authDomain.value}', Project: '${diag.projectId.value}'). Checklist: 1) Verify that VITE_FIREBASE_API_KEY belongs to Firebase project '${diag.projectId.value || 'gstrepotis'}' (and not another GCP project), 2) Ensure '${currentHost}' is listed in Firebase Console -> Authentication -> Settings -> Authorized Domains, and 3) Allow up to 10 minutes for Google's cache to propagate.`;
+  }
+
+  if (
     errorCode === 'auth/invalid-api-key' ||
     errorCode.includes('api-key-not-valid') ||
     errorMessage.toLowerCase().includes('api-key-not-valid') ||
