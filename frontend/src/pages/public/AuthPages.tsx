@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '../../components/ui/Card';
-import { ShieldCheck, CheckCircle2, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
+import { ShieldCheck, CheckCircle2, ArrowRight, AlertCircle, Loader2, User, Phone } from 'lucide-react';
 import { signInWithGoogle } from '../../services/authService';
 import { getSafeFirebaseDiagnostic } from '../../services/firebase';
 import { getApiBaseUrl } from '../../services/api';
@@ -36,20 +36,24 @@ export const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-5 
 interface GoogleButtonProps {
   onClick: () => void;
   isLoading: boolean;
+  disabled?: boolean;
   text?: string;
 }
 
 export const GoogleAuthButton: React.FC<GoogleButtonProps> = ({
   onClick,
   isLoading,
+  disabled = false,
   text = 'Continue with Google',
 }) => {
+  const isDisabled = disabled || isLoading;
+
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={isLoading}
-      className={`w-full flex items-center justify-center gap-3 px-5 py-3.5 bg-white text-[#3C4043] font-medium text-sm rounded-xl border border-[#DADCE0] shadow-sm hover:shadow-md hover:bg-[#F8F9FA] active:bg-[#F1F3F4] transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-none focus:outline-none focus:ring-2 focus:ring-black/10`}
+      disabled={isDisabled}
+      className={`w-full flex items-center justify-center gap-3 px-5 py-3.5 bg-white text-[#3C4043] font-medium text-sm rounded-xl border border-[#DADCE0] shadow-sm hover:shadow-md hover:bg-[#F8F9FA] active:bg-[#F1F3F4] transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:bg-white focus:outline-none focus:ring-2 focus:ring-black/10`}
     >
       {isLoading ? (
         <>
@@ -92,7 +96,7 @@ function formatAuthError(err: any): string {
   ) {
     const diag = getSafeFirebaseDiagnostic();
     const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
-    return `Firebase domain authorization error (auth/unauthorized-domain): The domain '${currentHost}' is not authorized for the Firebase project linked to your API key (Configured authDomain: '${diag.authDomain.value}', Project: '${diag.projectId.value}'). Checklist: 1) Verify that VITE_FIREBASE_API_KEY belongs to Firebase project '${diag.projectId.value || 'gstrepotis'}' (and not another GCP project), 2) Ensure '${currentHost}' is listed in Firebase Console -> Authentication -> Settings -> Authorized Domains, and 3) Allow up to 10 minutes for Google's cache to propagate.`;
+    return `Firebase domain authorization error (auth/unauthorized-domain): The domain '${currentHost}' is not authorized for the Firebase project linked to your API key (Configured authDomain: '${diag.authDomain.value}', Project: '${diag.projectId.value}').`;
   }
 
   if (
@@ -101,17 +105,7 @@ function formatAuthError(err: any): string {
     errorMessage.toLowerCase().includes('api-key-not-valid') ||
     errorMessage.toLowerCase().includes('api key not valid')
   ) {
-    const diag = getSafeFirebaseDiagnostic();
-    if (diag.apiKey.isPlaceholder) {
-      return "Firebase configuration error: The API key in environment variables is a placeholder ('AIzaSy...'). Please update VITE_FIREBASE_API_KEY with your real Web App API key from Firebase Console (Project: gstrepotis).";
-    }
-    if (!diag.apiKey.exists) {
-      return 'Firebase configuration error: VITE_FIREBASE_API_KEY is not set or empty in environment variables. Please configure it in your Railway dashboard.';
-    }
-    if (!diag.apiKey.startsWithAIza) {
-      return `Firebase API key error: Key does not start with 'AIza' (length: ${diag.apiKey.length}). Please copy the exact apiKey from Firebase Console.`;
-    }
-    return `Google rejected the Firebase API key (length: ${diag.apiKey.length}, startsWithAIza: true, source: ${diag.apiKey.source}). Please verify in Firebase Console (Project: gstrepotis -> Web App: GSTSUITES) that this exact Web API Key is active and has Identity Toolkit API enabled.`;
+    return 'Firebase configuration error: Invalid API key. Please check your environment variables.';
   }
 
   if (
@@ -120,10 +114,37 @@ function formatAuthError(err: any): string {
     errorCode === 'ERR_NAME_NOT_RESOLVED'
   ) {
     const apiUrl = getApiBaseUrl();
-    return `Network DNS connection error (ERR_NAME_NOT_RESOLVED / Failed to fetch): Could not connect to backend server at '${apiUrl}'. The DNS record for api.gstrepotis.com was recently pointed to Cloudflare and may be temporarily cached by your local ISP/network resolver. Fixes: 1) Run 'ipconfig /flushdns' in Command Prompt, 2) Switch your device DNS to Cloudflare (1.1.1.1) or Google (8.8.8.8), or 3) Allow DNS cache to refresh.`;
+    return `Network DNS connection error: Could not connect to backend server at '${apiUrl}'. Please check your internet connection.`;
   }
 
   return errorMessage || 'Unable to authenticate with Google. Please try again.';
+}
+
+/**
+ * Mobile Number Normalization Helper for Indian Numbers
+ */
+export function extract10DigitIndianMobile(input: string): {
+  raw10: string;
+  canonical: string;
+  isValid: boolean;
+} {
+  const digitsOnly = input.replace(/\D/g, '');
+
+  let tenDigits = '';
+  if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
+    tenDigits = digitsOnly.substring(2);
+  } else if (digitsOnly.length === 11 && digitsOnly.startsWith('0')) {
+    tenDigits = digitsOnly.substring(1);
+  } else if (digitsOnly.length === 10) {
+    tenDigits = digitsOnly;
+  }
+
+  const isValid = tenDigits.length === 10 && /^[6-9]\d{9}$/.test(tenDigits);
+  return {
+    raw10: tenDigits,
+    canonical: isValid ? `+91${tenDigits}` : '',
+    isValid,
+  };
 }
 
 /* ====================================================================
@@ -147,9 +168,13 @@ export const SignInPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await signInWithGoogle();
+      const result = await signInWithGoogle();
       setIsLoading(false);
-      navigate('/welcome');
+      if (result.requires_profile_completion) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/welcome');
+      }
     } catch (err: any) {
       setIsLoading(false);
       console.error('Google Sign-in error:', err);
@@ -189,7 +214,10 @@ export const SignInPage: React.FC = () => {
           <GoogleAuthButton onClick={handleGoogleLogin} isLoading={isLoading} text="Continue with Google" />
 
           <p className="text-[11px] text-[#666666] text-center font-mono">
-            New user? We'll create your account automatically.
+            New user?{' '}
+            <Link to="/sign-up" className="font-bold text-black hover:underline">
+              Create an Account
+            </Link>
           </p>
         </div>
 
@@ -226,9 +254,13 @@ export const SignInPage: React.FC = () => {
 };
 
 /* ====================================================================
-   SIGN UP PAGE (GOOGLE-ONLY REGISTRATION)
+   SIGN UP PAGE (NAME & MOBILE VALIDATION -> GOOGLE AUTH)
    ==================================================================== */
 export const SignUpPage: React.FC = () => {
+  const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
+  const [mobileTouched, setMobileTouched] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -241,14 +273,30 @@ export const SignUpPage: React.FC = () => {
     }
   }, [navigate]);
 
+  // Validation
+  const trimmedName = name.trim();
+  const isNameValid = trimmedName.length >= 2 && trimmedName.length <= 100;
+  const mobileParsed = extract10DigitIndianMobile(mobile);
+  const isMobileValid = mobileParsed.isValid;
+  const isFormValid = isNameValid && isMobileValid;
+
   const handleGoogleSignup = async () => {
+    if (!isFormValid || isLoading) return;
+
     setError('');
     setIsLoading(true);
 
     try {
-      await signInWithGoogle();
+      const result = await signInWithGoogle({
+        name: trimmedName,
+        mobile: mobileParsed.canonical,
+      });
       setIsLoading(false);
-      navigate('/welcome');
+      if (result.requires_profile_completion) {
+        navigate('/complete-profile');
+      } else {
+        navigate('/welcome');
+      }
     } catch (err: any) {
       setIsLoading(false);
       console.error('Google Sign-up error:', err);
@@ -283,15 +331,99 @@ export const SignUpPage: React.FC = () => {
           </div>
         )}
 
-        {/* Google Authentication Button */}
-        <div className="space-y-4 pt-2">
-          <GoogleAuthButton
-            onClick={handleGoogleSignup}
-            isLoading={isLoading}
-            text="Continue with Google"
-          />
+        {/* Registration Form */}
+        <div className="space-y-4">
+          {/* Full Name Input */}
+          <div>
+            <label htmlFor="signup-fullname" className="block text-xs font-bold text-[#222222] mb-1.5">
+              Full Name <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-neutral-400">
+                <User className="w-4 h-4" />
+              </div>
+              <input
+                id="signup-fullname"
+                type="text"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (error) setError('');
+                }}
+                onBlur={() => setNameTouched(true)}
+                placeholder="Enter your full name"
+                disabled={isLoading}
+                className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
+                  nameTouched && !isNameValid
+                    ? 'border-red-400 focus:ring-red-400'
+                    : 'border-[#D1D5DB] focus:border-black focus:ring-black'
+                } rounded-xl shadow-sm placeholder:text-neutral-400 focus:outline-none focus:ring-1 transition-colors`}
+              />
+            </div>
+            {nameTouched && !isNameValid && (
+              <p className="text-[11px] text-red-600 mt-1 font-medium">
+                {trimmedName.length === 0
+                  ? 'Full Name is required.'
+                  : 'Name must be between 2 and 100 characters.'}
+              </p>
+            )}
+          </div>
 
-          <p className="text-[11px] text-[#666666] text-center font-mono">
+          {/* Mobile Number Input */}
+          <div>
+            <label htmlFor="signup-mobile" className="block text-xs font-bold text-[#222222] mb-1.5">
+              Mobile Number <span className="text-red-500">*</span>
+            </label>
+            <div className="relative flex rounded-xl shadow-sm">
+              <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#D1D5DB] bg-[#F9FAFB] text-neutral-600 text-xs font-bold font-mono">
+                <Phone className="w-3.5 h-3.5 mr-1 text-neutral-400" />
+                +91
+              </span>
+              <input
+                id="signup-mobile"
+                type="tel"
+                maxLength={10}
+                value={mobile}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setMobile(cleaned);
+                  if (error) setError('');
+                }}
+                onBlur={() => setMobileTouched(true)}
+                placeholder="Enter 10-digit mobile number"
+                disabled={isLoading}
+                className={`flex-1 min-w-0 block w-full px-3.5 py-2.5 text-sm bg-white border ${
+                  mobileTouched && !isMobileValid
+                    ? 'border-red-400 focus:ring-red-400'
+                    : 'border-[#D1D5DB] focus:border-black focus:ring-black'
+                } rounded-r-xl placeholder:text-neutral-400 focus:outline-none focus:ring-1 transition-colors font-mono`}
+              />
+            </div>
+            {mobileTouched && !isMobileValid && (
+              <p className="text-[11px] text-red-600 mt-1 font-medium">
+                {mobile.length === 0
+                  ? 'Mobile number is required.'
+                  : 'Please enter a valid 10-digit Indian mobile number (starts with 6, 7, 8, or 9).'}
+              </p>
+            )}
+            {!mobileTouched && (
+              <p className="text-[10px] text-neutral-500 mt-1 font-mono">
+                Standard 10-digit Indian mobile number
+              </p>
+            )}
+          </div>
+
+          {/* Google Button */}
+          <div className="pt-2">
+            <GoogleAuthButton
+              onClick={handleGoogleSignup}
+              isLoading={isLoading}
+              disabled={!isFormValid}
+              text="Continue with Google"
+            />
+          </div>
+
+          <p className="text-[11px] text-[#666666] text-center font-mono pt-1">
             Already have an account?{' '}
             <Link to="/sign-in" className="font-bold text-black hover:underline">
               Sign In
@@ -300,7 +432,7 @@ export const SignUpPage: React.FC = () => {
         </div>
 
         {/* Trial Feature Highlights */}
-        <div className="mt-8 pt-6 border-t border-[#E5E5E5] space-y-3 bg-[#FBFBFB] -mx-4 px-4 py-4 rounded-xl border border-neutral-100">
+        <div className="mt-6 pt-5 border-t border-[#E5E5E5] space-y-2.5 bg-[#FBFBFB] -mx-4 px-4 py-3.5 rounded-xl border border-neutral-100">
           <div className="flex items-center gap-2.5 text-xs text-[#222222]">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
             <span className="font-medium">50 complimentary conversion credits included</span>
@@ -320,7 +452,7 @@ export const SignUpPage: React.FC = () => {
         </div>
 
         {/* Terms footer */}
-        <div className="mt-6 pt-4 border-t border-[#E5E5E5] text-center text-[11px] text-[#777777] font-mono leading-relaxed">
+        <div className="mt-5 pt-4 border-t border-[#E5E5E5] text-center text-[11px] text-[#777777] font-mono leading-relaxed">
           By signing up, you agree to our{' '}
           <Link to="/terms" className="text-black font-semibold underline hover:text-neutral-700">
             Terms of Service

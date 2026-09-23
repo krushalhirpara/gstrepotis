@@ -9,6 +9,7 @@ import { BankConverterLanding, EcommerceGstr1Landing } from './pages/public/Prod
 import { PricingPage, AboutPage } from './pages/public/CompanyPages';
 import { TutorialsPage, TutorialDetailPage, ContactPage, RequestDemoPage } from './pages/public/SupportPages';
 import { SignInPage, SignUpPage, ForgotPasswordPage } from './pages/public/AuthPages';
+import { CompleteProfilePage } from './pages/public/CompleteProfilePage';
 import { TermsPage, PrivacyPage, RefundPolicyPage } from './pages/public/LegalPages';
 import { WelcomePage } from './pages/public/WelcomePage';
 import { CeoAdminLogin } from './pages/admin/CeoAdminLogin';
@@ -148,6 +149,16 @@ export const App: React.FC = () => {
                 <PublicOnlyRoute>
                   <SignUpPage />
                 </PublicOnlyRoute>
+              }
+            />
+
+            {/* Protected Profile Completion Route */}
+            <Route
+              path="/complete-profile"
+              element={
+                <ProtectedRoute>
+                  <CompleteProfilePage />
+                </ProtectedRoute>
               }
             />
 

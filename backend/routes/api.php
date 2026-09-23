@@ -23,7 +23,15 @@ Route::prefix('auth')->group(function () {
     Route::post('/google/firebase', [AuthController::class, 'loginWithFirebase']);
     Route::get('/user', [AuthController::class, 'user']);
     Route::get('/profile', [AuthController::class, 'profile']);
+    Route::post('/complete-profile', [AuthController::class, 'completeProfile']);
     Route::post('/logout', [AuthController::class, 'logout']);
+});
+
+// User Profile & Account Management
+Route::prefix('user')->group(function () {
+    Route::get('/profile', [AuthController::class, 'profile']);
+    Route::post('/complete-profile', [AuthController::class, 'completeProfile']);
+    Route::put('/profile', [AuthController::class, 'completeProfile']);
 });
 
 // Dashboard
@@ -75,6 +83,7 @@ Route::prefix('admin')->group(function () {
     Route::post('/login', [AdminController::class, 'login']);
     Route::get('/metrics', [AdminController::class, 'getMetrics']);
     Route::get('/users', [AdminController::class, 'getUsers']);
+    Route::get('/users/{id}', [AdminController::class, 'getUserDetails']);
     Route::post('/users/{id}/toggle-status', [AdminController::class, 'toggleUserStatus']);
     Route::get('/banks', [AdminController::class, 'getBanks']);
     Route::post('/banks', [AdminController::class, 'addBank']);
@@ -123,4 +132,3 @@ Route::middleware('auth.token')->prefix('gst-audits')->group(function () {
     Route::get('/{id}/report', [GstAuditController::class, 'getReport']);
     Route::get('/{id}/export/csv', [GstAuditController::class, 'exportCsv']);
 });
-

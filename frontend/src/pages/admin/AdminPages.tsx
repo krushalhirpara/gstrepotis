@@ -15,6 +15,12 @@ import {
   ShieldCheck,
   FileText,
   Clock,
+  Eye,
+  Phone,
+  Mail,
+  Calendar,
+  Key,
+  CreditCard,
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 
@@ -216,6 +222,11 @@ export const AdminUsers: React.FC = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const fetchUsers = async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -250,9 +261,42 @@ export const AdminUsers: React.FC = () => {
       .then((res) => res.json())
       .then((data) => {
         setUsers(users.map((u) => (u.id === id ? { ...u, status: data.user.status } : u)));
+        if (selectedUser && selectedUser.id === id) {
+          setSelectedUser({ ...selectedUser, status: data.user.status });
+        }
       })
       .catch(() => {});
   };
+
+  const handleViewDetails = async (user: any) => {
+    setIsDetailsOpen(true);
+    setDetailsLoading(true);
+    setSelectedUser(user);
+
+    try {
+      const res = await apiFetch(`/api/admin/users/${user.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.user) {
+          setSelectedUser(data.user);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading user details:', err);
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  // Filtered dataset
+  const filteredUsers = users.filter((u) => {
+    if (statusFilter !== 'all' && u.status !== statusFilter) return false;
+    if (roleFilter !== 'all') {
+      if (roleFilter === 'Admin' && !u.is_admin) return false;
+      if (roleFilter !== 'Admin' && u.user_type !== roleFilter && u.role !== roleFilter) return false;
+    }
+    return true;
+  });
 
   const columns: Column<any>[] = [
     {
@@ -260,17 +304,56 @@ export const AdminUsers: React.FC = () => {
       header: 'Name',
       render: (r) => (
         <div>
-          <span className="font-semibold text-black block">{r.name || 'Anonymous User'}</span>
+          <button
+            type="button"
+            onClick={() => handleViewDetails(r)}
+            className="font-bold text-black hover:underline text-left block cursor-pointer"
+          >
+            {r.name || 'Anonymous User'}
+          </button>
           {r.is_admin ? (
             <span className="text-[10px] text-red-600 font-bold uppercase tracking-wider">Owner / Admin</span>
           ) : null}
         </div>
       ),
     },
-    { key: 'email', header: 'Email', render: (r) => <span className="font-mono text-xs">{r.email}</span> },
-    { key: 'mobile', header: 'Mobile', render: (r) => r.mobile || <span className="text-neutral-400 text-xs">-</span> },
-    { key: 'user_type', header: 'Role', render: (r) => <Badge variant="outline">{r.user_type || 'User'}</Badge> },
-    { key: 'credits', header: 'Credits', render: (r) => `${r.credits ?? 50} left` },
+    {
+      key: 'mobile',
+      header: 'Mobile',
+      render: (r) =>
+        r.mobile ? (
+          <span className="font-mono text-xs font-semibold text-neutral-800">{r.mobile}</span>
+        ) : (
+          <span className="text-neutral-400 text-xs italic">Missing</span>
+        ),
+    },
+    { key: 'email', header: 'Email', render: (r) => <span className="font-mono text-xs text-neutral-700">{r.email}</span> },
+    {
+      key: 'firebase_uid',
+      header: 'Firebase UID',
+      render: (r) => {
+        const uid = r.firebase_uid || r.google_id;
+        return uid ? (
+          <span
+            title={uid}
+            className="font-mono text-[11px] bg-neutral-100 px-2 py-0.5 rounded text-neutral-600 max-w-[120px] truncate block"
+          >
+            {uid.length > 14 ? `${uid.substring(0, 12)}...` : uid}
+          </span>
+        ) : (
+          <span className="text-neutral-400 text-xs">-</span>
+        );
+      },
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      render: (r) => (
+        <Badge variant={r.is_admin ? 'neutral' : 'outline'}>
+          {r.is_admin ? 'Admin' : (r.role || r.user_type || 'User')}
+        </Badge>
+      ),
+    },
     {
       key: 'status',
       header: 'Status',
@@ -278,10 +361,28 @@ export const AdminUsers: React.FC = () => {
     },
     {
       key: 'created_at',
-      header: 'Registered',
+      header: 'Registration Date',
       render: (r) => (
-        <span className="text-xs text-neutral-500 font-mono">
-          {r.created_at ? new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Live'}
+        <span className="text-xs text-neutral-600 font-mono">
+          {r.created_at
+            ? new Date(r.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+            : 'Live'}
+        </span>
+      ),
+    },
+    {
+      key: 'last_login_at',
+      header: 'Last Login',
+      render: (r) => (
+        <span className="text-xs text-neutral-600 font-mono">
+          {r.last_login_at
+            ? new Date(r.last_login_at).toLocaleString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : 'Never'}
         </span>
       ),
     },
@@ -293,19 +394,57 @@ export const AdminUsers: React.FC = () => {
         <div>
           <h2 className="text-xl font-extrabold text-black">User Management Console</h2>
           <p className="text-xs text-[#666666] mt-0.5">
-            Real-time registered users, Google Authentication credentials, account status, and credits.
+            Real-time registered users, verified Google Authentication credentials, mobile contacts, and credits.
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchUsers(true)}
-          isLoading={refreshing}
-          leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
-        >
-          Refresh Users
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchUsers(true)}
+            isLoading={refreshing}
+            leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
+          >
+            Refresh Users
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="bg-white p-4 rounded-xl border border-[#E5E5E5] flex flex-wrap items-center gap-4 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-neutral-600">Status:</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-1.5 border border-[#D1D5DB] rounded-lg bg-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-black"
+          >
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-neutral-600">Role:</span>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="px-3 py-1.5 border border-[#D1D5DB] rounded-lg bg-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-black"
+          >
+            <option value="all">All Roles</option>
+            <option value="Admin">Admin</option>
+            <option value="CA">CA</option>
+            <option value="Accountant">Accountant</option>
+            <option value="Tax Professional">Tax Professional</option>
+            <option value="Seller">Seller</option>
+          </select>
+        </div>
+
+        <div className="ml-auto text-neutral-500 font-mono text-[11px]">
+          Showing {filteredUsers.length} of {users.length} users
+        </div>
       </div>
 
       {users.length === 0 && !loading ? (
@@ -322,19 +461,193 @@ export const AdminUsers: React.FC = () => {
       ) : (
         <DataTable
           columns={columns}
-          data={users}
-          searchPlaceholder="Search users by name or email..."
+          data={filteredUsers}
+          searchPlaceholder="Search users by name, email, mobile, or UID..."
           actions={(row) => (
-            <Button
-              variant={row.status === 'active' ? 'danger' : 'outline'}
-              size="sm"
-              onClick={() => toggleStatus(row.id)}
-            >
-              {row.status === 'active' ? 'Suspend' : 'Activate'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleViewDetails(row)}
+                leftIcon={<Eye className="w-3.5 h-3.5" />}
+                className="text-xs"
+              >
+                Details
+              </Button>
+              <Button
+                variant={row.status === 'active' ? 'danger' : 'outline'}
+                size="sm"
+                onClick={() => toggleStatus(row.id)}
+                className="text-xs"
+              >
+                {row.status === 'active' ? 'Suspend' : 'Activate'}
+              </Button>
+            </div>
           )}
         />
       )}
+
+      {/* User Details Modal */}
+      <Modal
+        isOpen={isDetailsOpen}
+        onClose={() => {
+          setIsDetailsOpen(false);
+          setSelectedUser(null);
+        }}
+        title="Registered User Profile & Workspace Records"
+      >
+        {detailsLoading ? (
+          <div className="py-12 flex flex-col items-center justify-center gap-3 text-neutral-500">
+            <RefreshCw className="w-6 h-6 animate-spin text-black" />
+            <span className="text-xs font-semibold">Loading real-time user records...</span>
+          </div>
+        ) : selectedUser ? (
+          <div className="space-y-5">
+            {/* Identity Banner */}
+            <div className="flex items-center gap-3.5 p-4 bg-[#FAFAFA] rounded-xl border border-neutral-100">
+              <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-black text-base">
+                {selectedUser.name ? selectedUser.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-extrabold text-black text-base truncate">{selectedUser.name || 'Anonymous'}</h4>
+                  <Badge variant={selectedUser.status === 'active' ? 'success' : 'error'} size="sm">
+                    {selectedUser.status || 'active'}
+                  </Badge>
+                </div>
+                <p className="text-xs text-neutral-500 font-mono mt-0.5">{selectedUser.email}</p>
+              </div>
+            </div>
+
+            {/* Profile Info Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-neutral-100 flex items-start gap-2.5">
+                <Phone className="w-4 h-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-[11px] text-neutral-500 font-medium block">Mobile Number</span>
+                  <span className="font-mono font-bold text-black text-sm">
+                    {selectedUser.mobile || 'Not provided'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-neutral-100 flex items-start gap-2.5">
+                <Mail className="w-4 h-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-[11px] text-neutral-500 font-medium block">Email Address</span>
+                  <span className="font-mono text-xs font-semibold text-black break-all">
+                    {selectedUser.email}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-neutral-100 flex items-start gap-2.5 sm:col-span-2">
+                <Key className="w-4 h-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[11px] text-neutral-500 font-medium block">Verified Firebase UID</span>
+                  <span className="font-mono text-[11px] text-neutral-800 break-all select-all block bg-white px-2 py-1 rounded border border-neutral-200 mt-0.5">
+                    {selectedUser.firebase_uid || selectedUser.google_id || 'N/A'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-neutral-100 flex items-start gap-2.5">
+                <Calendar className="w-4 h-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-[11px] text-neutral-500 font-medium block">Registration Date</span>
+                  <span className="font-mono text-xs text-black">
+                    {selectedUser.created_at
+                      ? new Date(selectedUser.created_at).toLocaleString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Live'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-[#F9FAFB] rounded-xl border border-neutral-100 flex items-start gap-2.5">
+                <Clock className="w-4 h-4 text-neutral-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-[11px] text-neutral-500 font-medium block">Last Login Timestamp</span>
+                  <span className="font-mono text-xs text-black">
+                    {selectedUser.last_login_at
+                      ? new Date(selectedUser.last_login_at).toLocaleString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Never'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Real DB Module Activity Breakdown */}
+            <div className="border-t border-[#E5E5E5] pt-4 space-y-3">
+              <h5 className="text-xs font-extrabold uppercase text-neutral-500 tracking-wider">
+                Database Workspace Activity
+              </h5>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-2.5 bg-[#F9FAFB] rounded-lg text-center border border-neutral-100">
+                  <span className="text-[10px] text-neutral-500 block">Clients</span>
+                  <span className="text-base font-black text-black">
+                    {selectedUser.metrics?.clients_count ?? 0}
+                  </span>
+                </div>
+                <div className="p-2.5 bg-[#F9FAFB] rounded-lg text-center border border-neutral-100">
+                  <span className="text-[10px] text-neutral-500 block">Bank Files</span>
+                  <span className="text-base font-black text-black">
+                    {selectedUser.metrics?.bank_statements_count ?? 0}
+                  </span>
+                </div>
+                <div className="p-2.5 bg-[#F9FAFB] rounded-lg text-center border border-neutral-100">
+                  <span className="text-[10px] text-neutral-500 block">GSTR-1 Files</span>
+                  <span className="text-base font-black text-black">
+                    {selectedUser.metrics?.marketplace_files_count ?? 0}
+                  </span>
+                </div>
+                <div className="p-2.5 bg-[#F9FAFB] rounded-lg text-center border border-neutral-100">
+                  <span className="text-[10px] text-neutral-500 block">GST Audits</span>
+                  <span className="text-base font-black text-black">
+                    {selectedUser.metrics?.gst_audits_count ?? 0}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-700" />
+                  <span className="font-bold text-emerald-950">Conversion Credits</span>
+                </div>
+                <span className="font-mono font-extrabold text-emerald-800 text-sm">
+                  {selectedUser.credits ?? 50} Available
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-2 flex justify-between gap-3 border-t border-[#E5E5E5]">
+              <Button
+                variant={selectedUser.status === 'active' ? 'danger' : 'outline'}
+                size="sm"
+                onClick={() => toggleStatus(selectedUser.id)}
+              >
+                {selectedUser.status === 'active' ? 'Suspend Account' : 'Activate Account'}
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => setIsDetailsOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 };

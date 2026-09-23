@@ -18,6 +18,7 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        'firebase_uid',
         'google_id',
         'avatar',
         'provider',
@@ -31,6 +32,7 @@ class User extends Authenticatable
         'account_status',
         'email_verified_at',
         'mobile_verified_at',
+        'last_login_at',
     ];
 
     /**
@@ -52,6 +54,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'mobile_verified_at' => 'datetime',
+        'last_login_at' => 'datetime',
         'is_admin' => 'boolean',
         'credits' => 'integer',
     ];
@@ -64,5 +67,20 @@ class User extends Authenticatable
     public function clients()
     {
         return $this->hasMany(Client::class);
+    }
+
+    public function bankStatements()
+    {
+        return $this->hasMany(BankStatement::class);
+    }
+
+    public function gstAudits()
+    {
+        return $this->hasMany(GstAudit::class);
+    }
+
+    public function marketplaceFiles()
+    {
+        return $this->hasMany(MarketplaceFile::class);
     }
 }

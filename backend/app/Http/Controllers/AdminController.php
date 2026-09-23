@@ -11,6 +11,24 @@ use Illuminate\Support\Facades\Schema;
 class AdminController extends Controller
 {
     /**
+     * Check if request is authenticated as CEO / Admin
+     */
+    protected function checkAdminAuthorization(Request $request): ?User
+    {
+        $token = $request->bearerToken();
+        if (!$token) {
+            return null;
+        }
+
+        $user = User::where('api_token', $token)->first();
+        if ($user && $user->is_admin) {
+            return $user;
+        }
+
+        return null;
+    }
+
+    /**
      * CEO Admin Authentication
      * POST /api/admin/login
      */
@@ -46,6 +64,7 @@ class AdminController extends Controller
                 'credits' => 99999,
                 'api_token' => $token,
                 'email_verified_at' => now(),
+                'last_login_at' => now(),
             ]);
         } else {
             $user->update([
@@ -54,6 +73,7 @@ class AdminController extends Controller
                 'status' => 'active',
                 'account_status' => 'active',
                 'api_token' => $token,
+                'last_login_at' => now(),
             ]);
         }
 
@@ -63,12 +83,17 @@ class AdminController extends Controller
             'token' => $token,
             'user' => [
                 'id' => $user->id,
+                'firebase_uid' => $user->firebase_uid ?? $user->google_id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'mobile' => $user->mobile,
                 'user_type' => 'Admin',
+                'role' => 'admin',
                 'is_admin' => 1,
                 'status' => $user->status,
                 'credits' => $user->credits,
+                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
+                'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
             ],
         ]);
     }
@@ -178,17 +203,160 @@ class AdminController extends Controller
     }
 
     /**
-     * Get All Registered Users
+     * Get All Registered Users with Search, Filters, and Sorting
      * GET /api/admin/users
      */
-    public function getUsers()
+    public function getUsers(Request $request)
     {
-        $users = DB::table('users')
-            ->orderBy('id', 'desc')
-            ->select('id', 'name', 'email', 'mobile', 'user_type', 'is_admin', 'credits', 'status', 'created_at')
-            ->get();
+        $query = DB::table('users');
 
-        return response()->json(['users' => $users]);
+        // Search by name, email, mobile, or UID
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('mobile', 'like', "%{$search}%");
+                
+                if (Schema::hasColumn('users', 'firebase_uid')) {
+                    $q->orWhere('firebase_uid', 'like', "%{$search}%");
+                }
+                if (Schema::hasColumn('users', 'google_id')) {
+                    $q->orWhere('google_id', 'like', "%{$search}%");
+                }
+            });
+        }
+
+        // Filter by status
+        if ($request->filled('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        // Filter by role
+        if ($request->filled('role') && $request->role !== 'all') {
+            if ($request->role === 'Admin' || $request->role === 'admin') {
+                $query->where('is_admin', 1);
+            } else {
+                $query->where('user_type', $request->role);
+            }
+        }
+
+        // Sorting
+        $sortBy = $request->get('sort_by', 'id');
+        $sortOrder = $request->get('sort_order', 'desc');
+        $allowedSorts = ['id', 'name', 'email', 'mobile', 'created_at', 'last_login_at', 'credits', 'status'];
+
+        if (in_array($sortBy, $allowedSorts)) {
+            $query->orderBy($sortBy, strtolower($sortOrder) === 'asc' ? 'asc' : 'desc');
+        } else {
+            $query->orderBy('id', 'desc');
+        }
+
+        $selectColumns = ['id', 'name', 'email', 'mobile', 'user_type', 'is_admin', 'credits', 'status', 'created_at'];
+        if (Schema::hasColumn('users', 'firebase_uid')) {
+            $selectColumns[] = 'firebase_uid';
+        }
+        if (Schema::hasColumn('users', 'google_id')) {
+            $selectColumns[] = 'google_id';
+        }
+        if (Schema::hasColumn('users', 'last_login_at')) {
+            $selectColumns[] = 'last_login_at';
+        }
+
+        $users = $query->select($selectColumns)->get()->map(function ($u) {
+            $firebaseUid = $u->firebase_uid ?? ($u->google_id ?? null);
+            return [
+                'id' => $u->id,
+                'firebase_uid' => $firebaseUid,
+                'google_id' => $u->google_id ?? $firebaseUid,
+                'name' => $u->name,
+                'email' => $u->email,
+                'mobile' => $u->mobile,
+                'user_type' => $u->user_type ?? 'CA',
+                'role' => $u->is_admin ? 'Admin' : ($u->user_type ?? 'User'),
+                'is_admin' => (bool) $u->is_admin,
+                'credits' => $u->credits ?? 50,
+                'status' => $u->status ?? 'active',
+                'created_at' => $u->created_at,
+                'last_login_at' => $u->last_login_at ?? null,
+            ];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'total' => count($users),
+            'users' => $users,
+        ]);
+    }
+
+    /**
+     * Get Specific User Details with DB Relations Metrics
+     * GET /api/admin/users/{id}
+     */
+    public function getUserDetails(Request $request, $id)
+    {
+        $user = User::findOrFail($id);
+
+        // Fetch real relation counts
+        $clientsCount = 0;
+        if (Schema::hasTable('clients')) {
+            $clientsCount = DB::table('clients')->where('user_id', $user->id)->count();
+        }
+
+        $bankCount = 0;
+        if (Schema::hasTable('bank_statements')) {
+            $bankCount = DB::table('bank_statements')->where('user_id', $user->id)->count();
+        }
+
+        $marketCount = 0;
+        if (Schema::hasTable('marketplace_files')) {
+            $marketCount = DB::table('marketplace_files')->where('user_id', $user->id)->count();
+        }
+
+        $auditCount = 0;
+        if (Schema::hasTable('gst_audits')) {
+            $auditCount = DB::table('gst_audits')->where('user_id', $user->id)->count();
+        }
+
+        $activeSubscription = null;
+        if (Schema::hasTable('subscriptions')) {
+            $activeSubscription = DB::table('subscriptions')
+                ->where('user_id', $user->id)
+                ->where('status', 'active')
+                ->first();
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'user' => [
+                'id' => $user->id,
+                'firebase_uid' => $user->firebase_uid ?? $user->google_id,
+                'google_id' => $user->google_id ?? $user->firebase_uid,
+                'name' => $user->name,
+                'email' => $user->email,
+                'mobile' => $user->mobile,
+                'avatar' => $user->avatar,
+                'user_type' => $user->user_type ?? 'CA',
+                'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
+                'is_admin' => (bool) $user->is_admin,
+                'status' => $user->status ?? 'active',
+                'credits' => $user->credits ?? 50,
+                'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
+                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
+                'email_verified_at' => $user->email_verified_at ? $user->email_verified_at->toIso8601String() : null,
+                'metrics' => [
+                    'clients_count' => $clientsCount,
+                    'bank_statements_count' => $bankCount,
+                    'marketplace_files_count' => $marketCount,
+                    'gst_audits_count' => $auditCount,
+                    'subscription' => $activeSubscription ? [
+                        'plan_name' => $activeSubscription->plan_name ?? 'Active Plan',
+                        'status' => $activeSubscription->status,
+                        'expires_at' => $activeSubscription->expires_at ?? null,
+                    ] : null,
+                ],
+            ],
+        ]);
     }
 
     public function toggleUserStatus(Request $request, $id)
