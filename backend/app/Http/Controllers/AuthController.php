@@ -2,20 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\RegistrationVerification;
+use App\Models\OtpVerification;
 use App\Models\User;
 use App\Services\FirebaseTokenVerifier;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Throwable;
 
 class AuthController extends Controller
 {
     protected FirebaseTokenVerifier $tokenVerifier;
+    protected SmsService $smsService;
 
-    public function __construct(FirebaseTokenVerifier $tokenVerifier)
+    public function __construct(FirebaseTokenVerifier $tokenVerifier, SmsService $smsService)
     {
         $this->tokenVerifier = $tokenVerifier;
+        $this->smsService = $smsService;
     }
 
     /**
@@ -65,19 +72,26 @@ class AuthController extends Controller
     }
 
     /**
-     * Authenticate or Register via Firebase Google Authentication
-     * POST /api/auth/google
+     * Step 1: Request Signup Mobile OTP
+     * POST /api/auth/register/request-otp
      */
-    public function loginWithFirebase(Request $request)
+    public function requestRegistrationOtp(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_token' => 'required|string',
-            'name' => 'nullable|string|min:2|max:100',
-            'mobile' => 'nullable|string',
+            'name' => 'required|string|min:2|max:100',
+            'email' => 'required|email|max:150',
+            'mobile' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
         ], [
-            'id_token.required' => 'Firebase ID token is required.',
-            'name.min' => 'Full Name must be at least 2 characters.',
-            'name.max' => 'Full Name must not exceed 100 characters.',
+            'name.required' => 'Please enter your full name.',
+            'name.min' => 'Name must be at least 2 characters.',
+            'name.max' => 'Name must not exceed 100 characters.',
+            'email.required' => 'Please enter your email address.',
+            'email.email' => 'Please enter a valid email address.',
+            'mobile.required' => 'Please enter your mobile number.',
+            'password.required' => 'Please create a password.',
+            'password.min' => 'Password must be at least 8 characters.',
+            'password.confirmed' => 'Passwords do not match.',
         ]);
 
         if ($validator->fails()) {
@@ -87,25 +101,526 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Mobile validation if provided
-        $normalizedMobile = null;
-        if ($request->filled('mobile')) {
-            $normalizedMobile = $this->normalizeMobile($request->mobile);
-            if (!$normalizedMobile) {
-                return response()->json([
-                    'message' => 'Validation failed',
-                    'errors' => [
-                        'mobile' => ['Enter a valid 10 digit Indian mobile number.'],
-                    ],
-                ], 422);
+        $normalizedEmail = $this->normalizeEmail($request->email);
+        $normalizedMobile = $this->normalizeMobile($request->mobile);
+
+        if (!$normalizedMobile) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => [
+                    'mobile' => ['Please enter a valid 10-digit mobile number.'],
+                ],
+            ], 422);
+        }
+
+        // Duplicate checks against users table
+        if (User::where('email', $normalizedEmail)->exists()) {
+            return response()->json([
+                'message' => 'An account with this email already exists. Please login.',
+                'errors' => [
+                    'email' => ['An account with this email already exists. Please login.'],
+                ],
+            ], 422);
+        }
+
+        if (User::where('mobile', $normalizedMobile)->exists()) {
+            return response()->json([
+                'message' => 'An account with this mobile number already exists. Please login.',
+                'errors' => [
+                    'mobile' => ['An account with this mobile number already exists. Please login.'],
+                ],
+            ], 422);
+        }
+
+        // Generate cryptographically secure 6-digit OTP server-side
+        $otp = (string) random_int(100000, 999999);
+        $otpHash = hash('sha256', $otp);
+        $passwordHash = Hash::make($request->password);
+        $registrationId = (string) Str::uuid();
+
+        // Dispatch SMS OTP via SmsService
+        $sent = $this->smsService->sendOtp($normalizedMobile, $otp);
+        if (!$sent) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unable to send OTP SMS to your mobile number. Please try again or check number.',
+            ], 500);
+        }
+
+        // Clean any older temporary registrations for this email/mobile
+        RegistrationVerification::where('email', $normalizedEmail)
+            ->orWhere('mobile', $normalizedMobile)
+            ->delete();
+
+        // Store pre-registration data temporarily with 5-minute expiry
+        RegistrationVerification::create([
+            'registration_id' => $registrationId,
+            'name' => trim($request->name),
+            'email' => $normalizedEmail,
+            'mobile' => $normalizedMobile,
+            'password_hash' => $passwordHash,
+            'otp_hash' => $otpHash,
+            'expires_at' => now()->addMinutes(5),
+            'attempts' => 0,
+            'max_attempts' => 5,
+            'last_sent_at' => now(),
+        ]);
+
+        $tenDigit = substr($normalizedMobile, -10);
+        $maskedMobile = '+91 ' . substr($tenDigit, 0, 5) . ' ' . substr($tenDigit, 5);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'OTP has been sent to your mobile number.',
+            'registration_id' => $registrationId,
+            'mobile_masked' => $maskedMobile,
+            'expires_in_seconds' => 300,
+            'cooldown_seconds' => 30,
+        ]);
+    }
+
+    /**
+     * Step 2: Verify Mobile OTP & Create User Account
+     * POST /api/auth/register/verify-otp
+     */
+    public function verifyRegistrationOtp(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'registration_id' => 'required|string',
+            'otp' => 'required|string|size:6',
+        ], [
+            'registration_id.required' => 'Registration session ID is required.',
+            'otp.required' => 'Please enter the 6-digit OTP.',
+            'otp.size' => 'OTP must be exactly 6 digits.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $reg = RegistrationVerification::where('registration_id', $request->registration_id)
+            ->whereNull('verified_at')
+            ->first();
+
+        if (!$reg) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No active registration verification session found. Please register again.',
+            ], 404);
+        }
+
+        // Check expiration
+        if ($reg->expires_at->isPast()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This OTP has expired. Please request a new OTP.',
+            ], 422);
+        }
+
+        // Check attempts
+        if ($reg->attempts >= $reg->max_attempts) {
+            $reg->delete();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Too many attempts. Please request a new OTP.',
+            ], 422);
+        }
+
+        $reg->increment('attempts');
+
+        // Check hash
+        $inputHash = hash('sha256', trim($request->otp));
+        if ($inputHash !== $reg->otp_hash) {
+            $remaining = max($reg->max_attempts - $reg->attempts, 0);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid OTP. Please try again.',
+                'attempts_remaining' => $remaining,
+            ], 422);
+        }
+
+        // Mark verified & create user account
+        $reg->update(['verified_at' => now()]);
+
+        // Safety check duplicate
+        $existing = User::where('email', $reg->email)->orWhere('mobile', $reg->mobile)->first();
+        if ($existing) {
+            $token = bin2hex(random_bytes(32));
+            $existing->update([
+                'password' => $reg->password_hash,
+                'mobile_verified_at' => now(),
+                'api_token' => $token,
+                'last_login_at' => now(),
+            ]);
+            $user = $existing;
+        } else {
+            $token = bin2hex(random_bytes(32));
+            $user = User::create([
+                'name' => $reg->name,
+                'email' => $reg->email,
+                'mobile' => $reg->mobile,
+                'password' => $reg->password_hash,
+                'user_type' => 'CA',
+                'credits' => 50,
+                'status' => 'active',
+                'account_status' => 'active',
+                'email_verified_at' => now(),
+                'mobile_verified_at' => now(),
+                'api_token' => $token,
+                'last_login_at' => now(),
+            ]);
+        }
+
+        // Cleanup temporary record
+        $reg->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Account created and verified successfully.',
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'mobile' => $user->mobile,
+                'user_type' => $user->user_type ?? 'CA',
+                'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
+                'is_admin' => (bool) $user->is_admin,
+                'status' => $user->status ?? 'active',
+                'credits' => $user->credits ?? 50,
+                'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
+                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Resend Signup Mobile OTP
+     * POST /api/auth/register/resend-otp
+     */
+    public function resendRegistrationOtp(Request $request)
+    {
+        $request->validate([
+            'registration_id' => 'required|string',
+        ]);
+
+        $reg = RegistrationVerification::where('registration_id', $request->registration_id)
+            ->whereNull('verified_at')
+            ->first();
+
+        if (!$reg) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration session expired. Please register again.',
+            ], 404);
+        }
+
+        // 30s Cooldown check
+        if ($reg->last_sent_at && $reg->last_sent_at->addSeconds(30)->isFuture()) {
+            $secondsRemaining = $reg->last_sent_at->addSeconds(30)->diffInSeconds(now());
+            return response()->json([
+                'status' => 'error',
+                'message' => "Please wait {$secondsRemaining} seconds before requesting a new OTP.",
+                'cooldown_seconds' => $secondsRemaining,
+            ], 429);
+        }
+
+        $otp = (string) random_int(100000, 999999);
+        $otpHash = hash('sha256', $otp);
+
+        $sent = $this->smsService->sendOtp($reg->mobile, $otp);
+        if (!$sent) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unable to send OTP SMS. Please try again.',
+            ], 500);
+        }
+
+        $reg->update([
+            'otp_hash' => $otpHash,
+            'expires_at' => now()->addMinutes(5),
+            'attempts' => 0,
+            'last_sent_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'New OTP has been sent to your mobile number.',
+            'cooldown_seconds' => 30,
+        ]);
+    }
+
+    /**
+     * Traditional Login: Email or Mobile + Password
+     * POST /api/auth/login
+     */
+    public function login(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'login' => 'required|string',
+            'password' => 'required|string',
+        ], [
+            'login.required' => 'Please enter your Email ID or Mobile Number.',
+            'password.required' => 'Please enter your password.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $loginInput = trim($request->login);
+        $user = null;
+
+        // Check if input is an email
+        if (str_contains($loginInput, '@')) {
+            $normalizedEmail = $this->normalizeEmail($loginInput);
+            $user = User::where('email', $normalizedEmail)->first();
+        } else {
+            // Check if input is a mobile number
+            $normalizedMobile = $this->normalizeMobile($loginInput);
+            if ($normalizedMobile) {
+                $user = User::where('mobile', $normalizedMobile)
+                    ->orWhere('mobile', substr($normalizedMobile, -10))
+                    ->first();
+            } else {
+                // Fallback direct match
+                $user = User::where('mobile', $loginInput)->orWhere('email', strtolower($loginInput))->first();
             }
         }
 
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid email/mobile or password.',
+            ], 401);
+        }
+
+        if ($user->status === 'suspended' || $user->account_status === 'suspended') {
+            return response()->json([
+                'status' => 'error',
+                'code' => 'ACCOUNT_SUSPENDED',
+                'message' => 'Your account is currently suspended. Please contact support.',
+            ], 403);
+        }
+
+        // Generate session access token
+        $token = bin2hex(random_bytes(32));
+        $user->update([
+            'api_token' => $token,
+            'last_login_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Authenticated successfully.',
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'mobile' => $user->mobile,
+                'avatar' => $user->avatar,
+                'user_type' => $user->user_type ?? 'CA',
+                'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
+                'is_admin' => (bool) $user->is_admin,
+                'status' => $user->status ?? 'active',
+                'credits' => $user->credits ?? 50,
+                'provider' => $user->provider ?? 'password',
+                'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
+                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Forgot Password Step 1: Request Password Reset OTP
+     * POST /api/auth/forgot-password/request
+     */
+    public function forgotPasswordRequest(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'login' => 'required|string',
+        ], [
+            'login.required' => 'Please enter your registered Email ID or Mobile Number.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $loginInput = trim($request->login);
+        $user = null;
+        $channel = 'mobile';
+
+        if (str_contains($loginInput, '@')) {
+            $channel = 'email';
+            $user = User::where('email', $this->normalizeEmail($loginInput))->first();
+        } else {
+            $normalizedMobile = $this->normalizeMobile($loginInput);
+            if ($normalizedMobile) {
+                $user = User::where('mobile', $normalizedMobile)->first();
+            }
+        }
+
+        if (!$user) {
+            // Return generic message for privacy
+            return response()->json([
+                'status' => 'success',
+                'message' => 'If an account exists with these details, a verification code has been dispatched.',
+                'destination_masked' => 'your registered contact',
+            ]);
+        }
+
+        $otp = (string) random_int(100000, 999999);
+        $otpHash = hash('sha256', $otp);
+
+        // Delete older unverified OTPs for this user
+        OtpVerification::where('user_id', $user->id)->delete();
+
+        OtpVerification::create([
+            'user_id' => $user->id,
+            'channel' => $channel,
+            'destination' => $channel === 'email' ? $user->email : $user->mobile,
+            'otp_hash' => $otpHash,
+            'expires_at' => now()->addMinutes(10),
+            'attempts' => 0,
+            'max_attempts' => 5,
+            'last_sent_at' => now(),
+        ]);
+
+        if ($user->mobile) {
+            $this->smsService->sendOtp($user->mobile, $otp);
+        }
+
+        $destination = $user->mobile ?: $user->email;
+        $masked = preg_replace('/(\d{2})\d{6}(\d{2})/', '$1******$2', $destination);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Verification code sent to your registered contact.',
+            'destination_masked' => $masked,
+        ]);
+    }
+
+    /**
+     * Forgot Password Step 2: Verify OTP & Set New Password
+     * POST /api/auth/forgot-password/reset
+     */
+    public function forgotPasswordReset(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'login' => 'required|string',
+            'otp' => 'required|string|size:6',
+            'password' => 'required|string|min:8|confirmed',
+        ], [
+            'login.required' => 'Login identifier is required.',
+            'otp.required' => 'Please enter the 6-digit verification code.',
+            'otp.size' => 'OTP must be 6 digits.',
+            'password.required' => 'Please enter your new password.',
+            'password.min' => 'Password must be at least 8 characters.',
+            'password.confirmed' => 'Passwords do not match.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $loginInput = trim($request->login);
+        $user = null;
+
+        if (str_contains($loginInput, '@')) {
+            $user = User::where('email', $this->normalizeEmail($loginInput))->first();
+        } else {
+            $normalizedMobile = $this->normalizeMobile($loginInput);
+            if ($normalizedMobile) {
+                $user = User::where('mobile', $normalizedMobile)->first();
+            }
+        }
+
+        if (!$user) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'No account found with this identifier.',
+            ], 404);
+        }
+
+        $verification = OtpVerification::where('user_id', $user->id)
+            ->whereNull('verified_at')
+            ->latest()
+            ->first();
+
+        if (!$verification || $verification->expires_at->isPast()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Verification code has expired. Please request a new one.',
+            ], 422);
+        }
+
+        if ($verification->attempts >= $verification->max_attempts) {
+            $verification->delete();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Too many failed attempts. Please request a new code.',
+            ], 422);
+        }
+
+        $verification->increment('attempts');
+
+        if (hash('sha256', trim($request->otp)) !== $verification->otp_hash) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Invalid verification code. Please try again.',
+            ], 422);
+        }
+
+        // Update password
+        $user->update([
+            'password' => Hash::make($request->password),
+            'last_login_at' => now(),
+        ]);
+
+        $verification->delete();
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Password reset successfully. You can now login with your new password.',
+        ]);
+    }
+
+    /**
+     * Firebase Google Auth (Kept for compatibility)
+     * POST /api/auth/google
+     */
+    public function loginWithFirebase(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id_token' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
         try {
-            // Verify token server-side via Google's public certificates
             $verified = $this->tokenVerifier->verifyIdToken($request->id_token);
         } catch (Throwable $e) {
-            Log::warning('Firebase Google Auth token verification failed: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'code' => 'INVALID_TOKEN',
@@ -116,8 +631,6 @@ class AuthController extends Controller
         $googleUid = $verified['uid'];
         $email = $this->normalizeEmail($verified['email'] ?? '');
         $tokenName = trim($verified['name'] ?? '');
-        $submittedName = $request->filled('name') ? trim($request->name) : null;
-        $finalName = $submittedName ?: ($tokenName ?: explode('@', $email)[0]);
         $picture = $verified['picture'] ?? null;
 
         if (empty($email)) {
@@ -127,135 +640,56 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // 1. Attempt to find user by Firebase UID / Google UID first
         $user = User::where('firebase_uid', $googleUid)
             ->orWhere('google_id', $googleUid)
+            ->orWhere('email', $email)
             ->first();
 
-        // 2. If not found by UID, safely match existing user by verified email
         if (!$user) {
-            $user = User::where('email', $email)->first();
-
-            if ($user) {
-                // Link Google identity to existing account
-                $updates = [
-                    'firebase_uid' => $googleUid,
-                    'google_id' => $googleUid,
-                    'avatar' => $picture ?: $user->avatar,
-                    'provider' => 'google',
-                    'email_verified_at' => $user->email_verified_at ?? now(),
-                    'account_status' => 'active',
-                    'last_login_at' => now(),
-                ];
-
-                if ($submittedName && empty($user->name)) {
-                    $updates['name'] = $submittedName;
-                }
-                if ($normalizedMobile && empty($user->mobile)) {
-                    $updates['mobile'] = $normalizedMobile;
-                }
-
-                $user->update($updates);
-            }
-        } else {
-            // Update profile fields & last login
-            $updates = [
+            $user = User::create([
+                'name' => $tokenName ?: explode('@', $email)[0],
+                'email' => $email,
+                'firebase_uid' => $googleUid,
+                'google_id' => $googleUid,
+                'avatar' => $picture,
+                'provider' => 'google',
+                'user_type' => 'CA',
+                'credits' => 50,
+                'status' => 'active',
+                'account_status' => 'active',
+                'email_verified_at' => now(),
                 'last_login_at' => now(),
-            ];
-
-            if (empty($user->firebase_uid)) {
-                $updates['firebase_uid'] = $googleUid;
-            }
-            if ($picture && $user->avatar !== $picture) {
-                $updates['avatar'] = $picture;
-            }
-            if ($user->account_status !== 'active') {
-                $updates['account_status'] = 'active';
-            }
-            if ($submittedName && ($user->name === 'User' || empty($user->name))) {
-                $updates['name'] = $submittedName;
-            }
-            if ($normalizedMobile && empty($user->mobile)) {
-                $updates['mobile'] = $normalizedMobile;
-            }
-
-            $user->update($updates);
+            ]);
+        } else {
+            $user->update([
+                'firebase_uid' => $googleUid,
+                'last_login_at' => now(),
+                'avatar' => $picture ?: $user->avatar,
+            ]);
         }
 
-        // 3. If user does not exist at all, create a new account
-        if (!$user) {
-            try {
-                $user = User::create([
-                    'name' => $finalName,
-                    'email' => $email,
-                    'firebase_uid' => $googleUid,
-                    'google_id' => $googleUid,
-                    'mobile' => $normalizedMobile,
-                    'avatar' => $picture,
-                    'provider' => 'google',
-                    'user_type' => 'CA',
-                    'credits' => 50,
-                    'status' => 'active',
-                    'account_status' => 'active',
-                    'email_verified_at' => now(),
-                    'last_login_at' => now(),
-                ]);
-            } catch (Throwable $dbError) {
-                // In case of race conditions
-                $user = User::where('email', $email)
-                    ->orWhere('firebase_uid', $googleUid)
-                    ->orWhere('google_id', $googleUid)
-                    ->first();
-
-                if (!$user) {
-                    Log::error('Firebase Google Auth user creation error: ' . $dbError->getMessage());
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => 'Could not create user account. Please try again.',
-                    ], 500);
-                }
-            }
-        }
-
-        // 4. Check if account has been suspended by administration
-        if ($user->status === 'suspended' || $user->account_status === 'suspended') {
-            return response()->json([
-                'status' => 'error',
-                'code' => 'ACCOUNT_SUSPENDED',
-                'message' => 'Your account is currently suspended. Please contact support.',
-            ], 403);
-        }
-
-        // 5. Generate secure session access token
         $token = bin2hex(random_bytes(32));
-        $user->update([
-            'api_token' => $token,
-            'last_login_at' => now(),
-        ]);
-
-        $requiresProfileCompletion = empty($user->mobile);
+        $user->update(['api_token' => $token]);
 
         return response()->json([
             'status' => 'success',
             'message' => 'Authenticated successfully.',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'requires_profile_completion' => $requiresProfileCompletion,
             'user' => [
                 'id' => $user->id,
-                'firebase_uid' => $user->firebase_uid ?? $user->google_id,
                 'name' => $user->name,
                 'email' => $user->email,
-                'avatar' => $user->avatar,
                 'mobile' => $user->mobile,
+                'avatar' => $user->avatar,
                 'user_type' => $user->user_type ?? 'CA',
-                'role' => $user->is_admin ? 'admin' : ($user->user_type ?? 'user'),
-                'status' => $user->status ?? 'active',
-                'credits' => $user->credits,
+                'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
                 'is_admin' => (bool) $user->is_admin,
+                'status' => $user->status ?? 'active',
+                'credits' => $user->credits ?? 50,
                 'provider' => $user->provider ?? 'google',
-                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
                 'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
+                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
             ],
         ]);
     }
@@ -291,34 +725,34 @@ class AuthController extends Controller
 
         return response()->json([
             'id' => $user->id,
-            'firebase_uid' => $user->firebase_uid ?? $user->google_id,
             'name' => $user->name,
             'email' => $user->email,
             'mobile' => $user->mobile,
             'avatar' => $user->avatar,
-            'role' => $user->is_admin ? 'admin' : ($user->user_type ?? 'user'),
+            'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
             'user_type' => $user->user_type ?? 'CA',
             'status' => $user->status ?? 'active',
-            'credits' => $user->credits,
+            'credits' => $user->credits ?? 50,
             'is_admin' => (bool) $user->is_admin,
-            'provider' => $user->provider ?? 'google',
+            'provider' => $user->provider ?? 'password',
             'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
             'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
+            'mobile_verified_at' => $user->mobile_verified_at ? $user->mobile_verified_at->toIso8601String() : null,
             'user' => [
                 'id' => $user->id,
-                'firebase_uid' => $user->firebase_uid ?? $user->google_id,
                 'name' => $user->name,
                 'email' => $user->email,
                 'avatar' => $user->avatar,
                 'mobile' => $user->mobile,
                 'user_type' => $user->user_type ?? 'CA',
-                'role' => $user->is_admin ? 'admin' : ($user->user_type ?? 'user'),
+                'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
                 'status' => $user->status ?? 'active',
-                'credits' => $user->credits,
+                'credits' => $user->credits ?? 50,
                 'is_admin' => (bool) $user->is_admin,
-                'provider' => $user->provider ?? 'google',
+                'provider' => $user->provider ?? 'password',
                 'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
                 'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
+                'mobile_verified_at' => $user->mobile_verified_at ? $user->mobile_verified_at->toIso8601String() : null,
             ],
         ]);
     }
@@ -332,44 +766,28 @@ class AuthController extends Controller
     }
 
     /**
-     * Complete or Update User Profile (Full Name & Mobile Number)
-     * POST /api/user/complete-profile
+     * Complete/Update Profile
      */
     public function completeProfile(Request $request)
     {
         $user = $this->resolveUser($request);
 
         if (!$user) {
-            return response()->json([
-                'message' => 'Unauthenticated.',
-            ], 401);
+            return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|min:2|max:100',
             'mobile' => 'required|string',
-        ], [
-            'name.required' => 'Full Name is required.',
-            'name.min' => 'Full Name must be at least 2 characters.',
-            'name.max' => 'Full Name must not exceed 100 characters.',
-            'mobile.required' => 'Mobile number is required.',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors(),
-            ], 422);
+            return response()->json(['message' => 'Validation failed', 'errors' => $validator->errors()], 422);
         }
 
         $normalizedMobile = $this->normalizeMobile($request->mobile);
         if (!$normalizedMobile) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => [
-                    'mobile' => ['Enter a valid 10 digit Indian mobile number.'],
-                ],
-            ], 422);
+            return response()->json(['message' => 'Validation failed', 'errors' => ['mobile' => ['Please enter a valid 10-digit mobile number.']]], 422);
         }
 
         $user->update([
@@ -380,24 +798,8 @@ class AuthController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Profile completed successfully.',
-            'requires_profile_completion' => false,
-            'user' => [
-                'id' => $user->id,
-                'firebase_uid' => $user->firebase_uid ?? $user->google_id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'mobile' => $user->mobile,
-                'avatar' => $user->avatar,
-                'user_type' => $user->user_type ?? 'CA',
-                'role' => $user->is_admin ? 'admin' : ($user->user_type ?? 'user'),
-                'status' => $user->status ?? 'active',
-                'credits' => $user->credits,
-                'is_admin' => (bool) $user->is_admin,
-                'provider' => $user->provider ?? 'google',
-                'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
-                'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
-            ],
+            'message' => 'Profile updated successfully.',
+            'user' => $user,
         ]);
     }
 

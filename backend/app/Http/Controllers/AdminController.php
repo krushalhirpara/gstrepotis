@@ -262,6 +262,9 @@ class AdminController extends Controller
         if (Schema::hasColumn('users', 'last_login_at')) {
             $selectColumns[] = 'last_login_at';
         }
+        if (Schema::hasColumn('users', 'mobile_verified_at')) {
+            $selectColumns[] = 'mobile_verified_at';
+        }
 
         $users = $query->select($selectColumns)->get()->map(function ($u) {
             $firebaseUid = $u->firebase_uid ?? ($u->google_id ?? null);
@@ -272,6 +275,7 @@ class AdminController extends Controller
                 'name' => $u->name,
                 'email' => $u->email,
                 'mobile' => $u->mobile,
+                'mobile_verified_at' => $u->mobile_verified_at ?? null,
                 'user_type' => $u->user_type ?? 'CA',
                 'role' => $u->is_admin ? 'Admin' : ($u->user_type ?? 'User'),
                 'is_admin' => (bool) $u->is_admin,

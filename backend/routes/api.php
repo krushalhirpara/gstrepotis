@@ -17,10 +17,25 @@ use App\Http\Controllers\GstAuditController;
 |--------------------------------------------------------------------------
 */
 
-// Firebase Google Authentication System
+// Authentication System (Email/Mobile + Password + Mandatory Mobile OTP)
 Route::prefix('auth')->group(function () {
+    // Signup with Mobile OTP
+    Route::post('/register/request-otp', [AuthController::class, 'requestRegistrationOtp']);
+    Route::post('/register/verify-otp', [AuthController::class, 'verifyRegistrationOtp']);
+    Route::post('/register/resend-otp', [AuthController::class, 'resendRegistrationOtp']);
+
+    // Login (Email or Mobile + Password)
+    Route::post('/login', [AuthController::class, 'login']);
+
+    // Password Reset
+    Route::post('/forgot-password/request', [AuthController::class, 'forgotPasswordRequest']);
+    Route::post('/forgot-password/reset', [AuthController::class, 'forgotPasswordReset']);
+
+    // Legacy / Google Auth compatibility
     Route::post('/google', [AuthController::class, 'loginWithFirebase']);
     Route::post('/google/firebase', [AuthController::class, 'loginWithFirebase']);
+
+    // Authenticated User
     Route::get('/user', [AuthController::class, 'user']);
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::post('/complete-profile', [AuthController::class, 'completeProfile']);

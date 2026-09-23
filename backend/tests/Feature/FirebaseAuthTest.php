@@ -2,266 +2,315 @@
 
 namespace Tests\Feature;
 
+use App\Models\RegistrationVerification;
+use App\Models\OtpVerification;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class FirebaseAuthTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_google_auth_requires_id_token()
+    public function test_registration_request_otp_requires_all_fields()
     {
-        $response = $this->postJson('/api/auth/google', []);
+        $response = $this->postJson('/api/auth/register/request-otp', []);
 
         $response->assertStatus(422)
-            ->assertJsonValidationErrors(['id_token']);
+            ->assertJsonValidationErrors(['name', 'email', 'mobile', 'password']);
     }
 
-    public function test_google_auth_rejects_invalid_token()
+    public function test_registration_rejects_invalid_name()
     {
-        $response = $this->postJson('/api/auth/google', [
-            'id_token' => 'invalid.dummy.token',
+        $response = $this->postJson('/api/auth/register/request-otp', [
+            'name' => 'A', // too short
+            'email' => 'test@example.com',
+            'mobile' => '9876543210',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
         ]);
 
-        $response->assertStatus(401)
-            ->assertJson([
-                'status' => 'error',
-                'code' => 'INVALID_TOKEN',
-            ]);
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['name']);
     }
 
-    public function test_unauthenticated_user_profile_returns_401()
+    public function test_registration_rejects_invalid_email()
     {
-        $response = $this->getJson('/api/auth/user');
+        $response = $this->postJson('/api/auth/register/request-otp', [
+            'name' => 'Valid Name',
+            'email' => 'invalid-email-format',
+            'mobile' => '9876543210',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
 
-        $response->assertStatus(401);
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['email']);
     }
 
-    public function test_authenticated_user_profile_returns_user()
+    public function test_registration_rejects_invalid_indian_mobile()
     {
-        $user = User::factory()->create([
-            'email' => 'testuser@example.com',
-            'firebase_uid' => 'google_test_123',
-            'google_id' => 'google_test_123',
-            'mobile' => '+919876543210',
-            'api_token' => 'valid_test_token_123',
-            'provider' => 'google',
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
-        $response = $this->withHeader('Authorization', 'Bearer valid_test_token_123')
-            ->getJson('/api/auth/user');
-
-        $response->assertStatus(200)
-            ->assertJson([
-                'user' => [
-                    'id' => $user->id,
-                    'email' => 'testuser@example.com',
-                    'mobile' => '+919876543210',
-                ],
-            ]);
-    }
-
-    public function test_new_user_registration_with_name_and_normalized_mobile()
-    {
-        $mockVerifier = $this->createMock(\App\Services\FirebaseTokenVerifier::class);
-        $mockVerifier->method('verifyIdToken')->willReturn([
-            'uid' => 'firebase_new_signup_101',
-            'email' => 'newca@example.com',
-            'email_verified' => true,
-            'name' => 'Default Token Name',
-            'picture' => 'https://example.com/photo.jpg',
-        ]);
-        $this->app->instance(\App\Services\FirebaseTokenVerifier::class, $mockVerifier);
-
-        $response = $this->postJson('/api/auth/google', [
-            'id_token' => 'mock_token_valid',
-            'name' => 'Krushal Hirpara',
-            'mobile' => '9876543210', // 10 digit without prefix
-        ]);
-
-        $response->assertStatus(200)
-            ->assertJson([
-                'status' => 'success',
-                'requires_profile_completion' => false,
-                'user' => [
-                    'name' => 'Krushal Hirpara',
-                    'email' => 'newca@example.com',
-                    'mobile' => '+919876543210', // Canonical normalized format
-                    'firebase_uid' => 'firebase_new_signup_101',
-                ],
-            ]);
-
-        $this->assertDatabaseHas('users', [
-            'email' => 'newca@example.com',
-            'firebase_uid' => 'firebase_new_signup_101',
-            'name' => 'Krushal Hirpara',
-            'mobile' => '+919876543210',
-        ]);
-    }
-
-    public function test_invalid_indian_mobile_is_rejected()
-    {
-        $response = $this->postJson('/api/auth/google', [
-            'id_token' => 'mock_token',
-            'name' => 'Krushal Hirpara',
-            'mobile' => '12345', // invalid length / start
+        $response = $this->postJson('/api/auth/register/request-otp', [
+            'name' => 'Valid Name',
+            'email' => 'test@example.com',
+            'mobile' => '12345', // invalid length & starting digit
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
         ]);
 
         $response->assertStatus(422)
             ->assertJsonValidationErrors(['mobile']);
     }
 
-    public function test_existing_email_is_safely_linked_without_duplicate()
+    public function test_registration_rejects_weak_or_mismatched_password()
     {
-        // Existing user created prior to Google auth
-        $existing = User::factory()->create([
-            'email' => 'krushal@example.com',
-            'firebase_uid' => null,
-            'google_id' => null,
-            'provider' => 'email',
-            'account_status' => 'active',
+        $response = $this->postJson('/api/auth/register/request-otp', [
+            'name' => 'Valid Name',
+            'email' => 'test@example.com',
+            'mobile' => '9876543210',
+            'password' => 'short',
+            'password_confirmation' => 'different',
         ]);
 
-        $mockVerifier = $this->createMock(\App\Services\FirebaseTokenVerifier::class);
-        $mockVerifier->method('verifyIdToken')->willReturn([
-            'uid' => 'firebase_uid_krushal_999',
-            'email' => 'krushal@example.com',
-            'email_verified' => true,
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['password']);
+    }
+
+    public function test_registration_rejects_duplicate_email()
+    {
+        User::factory()->create(['email' => 'existing@example.com']);
+
+        $response = $this->postJson('/api/auth/register/request-otp', [
+            'name' => 'Valid Name',
+            'email' => 'EXISTING@example.com', // case insensitive check
+            'mobile' => '9876543210',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['email']);
+    }
+
+    public function test_registration_rejects_duplicate_mobile()
+    {
+        User::factory()->create(['mobile' => '+919876543210']);
+
+        $response = $this->postJson('/api/auth/register/request-otp', [
+            'name' => 'Valid Name',
+            'email' => 'unique@example.com',
+            'mobile' => '9876543210',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['mobile']);
+    }
+
+    public function test_successful_registration_requests_otp_and_does_not_create_user_yet()
+    {
+        $response = $this->postJson('/api/auth/register/request-otp', [
             'name' => 'Krushal Hirpara',
-            'picture' => 'https://example.com/avatar.jpg',
+            'email' => 'krushal@example.com',
+            'mobile' => '9876543210',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
         ]);
-        $this->app->instance(\App\Services\FirebaseTokenVerifier::class, $mockVerifier);
 
-        $response = $this->postJson('/api/auth/google', ['id_token' => 'mock_token']);
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+            ])
+            ->assertJsonStructure(['registration_id', 'mobile_masked']);
+
+        // User must NOT be in users table yet
+        $this->assertDatabaseMissing('users', ['email' => 'krushal@example.com']);
+
+        // Temporary registration verification record must exist
+        $regId = $response->json('registration_id');
+        $this->assertDatabaseHas('registration_verifications', [
+            'registration_id' => $regId,
+            'email' => 'krushal@example.com',
+            'mobile' => '+919876543210',
+        ]);
+    }
+
+    public function test_verify_otp_rejects_wrong_otp()
+    {
+        $reg = RegistrationVerification::create([
+            'registration_id' => 'reg_test_uuid_1',
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('Password123!'),
+            'otp_hash' => hash('sha256', '654321'),
+            'expires_at' => now()->addMinutes(5),
+            'attempts' => 0,
+            'max_attempts' => 5,
+            'last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/register/verify-otp', [
+            'registration_id' => 'reg_test_uuid_1',
+            'otp' => '111111', // wrong OTP
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson(['status' => 'error', 'message' => 'Invalid OTP. Please try again.']);
+
+        $this->assertDatabaseMissing('users', ['email' => 'test@example.com']);
+    }
+
+    public function test_successful_otp_verification_creates_user_with_hashed_password()
+    {
+        $passwordHash = Hash::make('Password123!');
+        $reg = RegistrationVerification::create([
+            'registration_id' => 'reg_test_uuid_2',
+            'name' => 'Krushal Hirpara',
+            'email' => 'krushal.verified@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => $passwordHash,
+            'otp_hash' => hash('sha256', '123456'),
+            'expires_at' => now()->addMinutes(5),
+            'attempts' => 0,
+            'max_attempts' => 5,
+            'last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/register/verify-otp', [
+            'registration_id' => 'reg_test_uuid_2',
+            'otp' => '123456',
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
                 'user' => [
-                    'id' => $existing->id,
-                    'email' => 'krushal@example.com',
+                    'name' => 'Krushal Hirpara',
+                    'email' => 'krushal.verified@example.com',
+                    'mobile' => '+919876543210',
                 ],
-            ]);
+            ])
+            ->assertJsonStructure(['access_token']);
 
-        // Verify only 1 user exists with this email and firebase_uid is updated
-        $this->assertEquals(1, User::where('email', 'krushal@example.com')->count());
-        $this->assertDatabaseHas('users', [
-            'id' => $existing->id,
-            'firebase_uid' => 'firebase_uid_krushal_999',
-            'avatar' => 'https://example.com/avatar.jpg',
-            'provider' => 'google',
-        ]);
+        // Check user in database
+        $user = User::where('email', 'krushal.verified@example.com')->first();
+        $this->assertNotNull($user);
+        $this->assertEquals('+919876543210', $user->mobile);
+        $this->assertNotNull($user->mobile_verified_at);
+        $this->assertTrue(Hash::check('Password123!', $user->password));
+
+        // Temporary record should be deleted
+        $this->assertDatabaseMissing('registration_verifications', ['registration_id' => 'reg_test_uuid_2']);
     }
 
-    public function test_same_google_account_multiple_logins_never_duplicates_user()
-    {
-        $mockVerifier = $this->createMock(\App\Services\FirebaseTokenVerifier::class);
-        $mockVerifier->method('verifyIdToken')->willReturn([
-            'uid' => 'firebase_uid_unique_888',
-            'email' => 'newuser@example.com',
-            'email_verified' => true,
-            'name' => 'New User',
-            'picture' => null,
-        ]);
-        $this->app->instance(\App\Services\FirebaseTokenVerifier::class, $mockVerifier);
-
-        // First login -> creates account
-        $res1 = $this->postJson('/api/auth/google', [
-            'id_token' => 'mock_token',
-            'name' => 'Krushal H',
-            'mobile' => '+919812345678',
-        ]);
-        $res1->assertStatus(200);
-
-        // Second login -> finds existing account and updates last_login_at
-        $res2 = $this->postJson('/api/auth/google', ['id_token' => 'mock_token']);
-        $res2->assertStatus(200);
-
-        // Third login -> finds existing account
-        $res3 = $this->postJson('/api/auth/google', ['id_token' => 'mock_token']);
-        $res3->assertStatus(200);
-
-        $this->assertEquals(1, User::where('firebase_uid', 'firebase_uid_unique_888')->count());
-        $this->assertEquals(1, User::where('email', 'newuser@example.com')->count());
-    }
-
-    public function test_profile_completion_endpoint_saves_missing_mobile()
+    public function test_login_with_email_and_password()
     {
         $user = User::factory()->create([
-            'email' => 'incomplete@example.com',
-            'firebase_uid' => 'incomplete_uid_1',
-            'mobile' => null,
-            'api_token' => 'test_incomplete_token_99',
+            'email' => 'user@example.com',
+            'mobile' => '+919876543210',
+            'password' => Hash::make('Secret123!'),
             'status' => 'active',
         ]);
 
-        $response = $this->withHeader('Authorization', 'Bearer test_incomplete_token_99')
-            ->postJson('/api/user/complete-profile', [
-                'name' => 'Completed User',
-                'mobile' => '9988776655',
-            ]);
+        $response = $this->postJson('/api/auth/login', [
+            'login' => 'USER@example.com',
+            'password' => 'Secret123!',
+        ]);
 
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'requires_profile_completion' => false,
                 'user' => [
-                    'name' => 'Completed User',
-                    'mobile' => '+919988776655',
+                    'id' => $user->id,
+                    'email' => 'user@example.com',
                 ],
-            ]);
-
-        $this->assertDatabaseHas('users', [
-            'id' => $user->id,
-            'name' => 'Completed User',
-            'mobile' => '+919988776655',
-        ]);
+            ])
+            ->assertJsonStructure(['access_token']);
     }
 
-    public function test_admin_users_and_details_endpoints()
+    public function test_login_with_mobile_and_password()
     {
-        $admin = User::factory()->create([
-            'email' => 'admin@example.com',
-            'is_admin' => 1,
-            'user_type' => 'Admin',
-            'api_token' => 'admin_token_xyz',
-            'status' => 'active',
-        ]);
-
-        $clientUser = User::factory()->create([
-            'name' => 'Rahul Patel',
-            'email' => 'rahul@example.com',
+        $user = User::factory()->create([
+            'email' => 'mobileuser@example.com',
             'mobile' => '+919876543210',
-            'firebase_uid' => 'rahul_fb_123',
-            'is_admin' => 0,
+            'password' => Hash::make('Secret123!'),
             'status' => 'active',
         ]);
 
-        // Get users list
-        $listRes = $this->withHeader('Authorization', 'Bearer admin_token_xyz')
-            ->getJson('/api/admin/users');
+        $response = $this->postJson('/api/auth/login', [
+            'login' => '9876543210', // 10 digit without +91
+            'password' => 'Secret123!',
+        ]);
 
-        $listRes->assertStatus(200)
-            ->assertJsonStructure(['users', 'total']);
-
-        // Get user details
-        $detailRes = $this->withHeader('Authorization', 'Bearer admin_token_xyz')
-            ->getJson("/api/admin/users/{$clientUser->id}");
-
-        $detailRes->assertStatus(200)
+        $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
                 'user' => [
-                    'id' => $clientUser->id,
-                    'name' => 'Rahul Patel',
-                    'email' => 'rahul@example.com',
+                    'id' => $user->id,
                     'mobile' => '+919876543210',
-                    'firebase_uid' => 'rahul_fb_123',
                 ],
             ]);
+    }
+
+    public function test_login_rejects_wrong_password()
+    {
+        User::factory()->create([
+            'email' => 'user@example.com',
+            'password' => Hash::make('Secret123!'),
+        ]);
+
+        $response = $this->postJson('/api/auth/login', [
+            'login' => 'user@example.com',
+            'password' => 'WrongPassword',
+        ]);
+
+        $response->assertStatus(401)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Invalid email/mobile or password.',
+            ]);
+    }
+
+    public function test_forgot_password_request_and_reset_flow()
+    {
+        $user = User::factory()->create([
+            'email' => 'resetuser@example.com',
+            'mobile' => '+919812345678',
+            'password' => Hash::make('OldPassword1!'),
+        ]);
+
+        // Request reset
+        $reqResponse = $this->postJson('/api/auth/forgot-password/request', [
+            'login' => 'resetuser@example.com',
+        ]);
+
+        $reqResponse->assertStatus(200);
+
+        // Verification record in otp_verifications
+        $otpRecord = OtpVerification::where('user_id', $user->id)->first();
+        $this->assertNotNull($otpRecord);
+
+        // We simulate entering the generated OTP
+        $otp = '654321';
+        $otpRecord->update(['otp_hash' => hash('sha256', $otp)]);
+
+        // Reset password
+        $resetResponse = $this->postJson('/api/auth/forgot-password/reset', [
+            'login' => 'resetuser@example.com',
+            'otp' => '654321',
+            'password' => 'NewPassword123!',
+            'password_confirmation' => 'NewPassword123!',
+        ]);
+
+        $resetResponse->assertStatus(200)
+            ->assertJson(['status' => 'success']);
+
+        // Verify user can now login with new password
+        $user->refresh();
+        $this->assertTrue(Hash::check('NewPassword123!', $user->password));
     }
 
     public function test_logout_invalidates_api_token()

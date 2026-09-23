@@ -327,6 +327,20 @@ export const AdminUsers: React.FC = () => {
           <span className="text-neutral-400 text-xs italic">Missing</span>
         ),
     },
+    {
+      key: 'mobile_verified_at',
+      header: 'Mobile Verified',
+      render: (r) =>
+        r.mobile_verified_at ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Verified
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+            Unverified
+          </span>
+        ),
+    },
     { key: 'email', header: 'Email', render: (r) => <span className="font-mono text-xs text-neutral-700">{r.email}</span> },
     {
       key: 'firebase_uid',
