@@ -4,7 +4,7 @@ import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { AlertCircle, User, Phone, CheckCircle2 } from 'lucide-react';
 import { completeUserProfile, getLocalUser } from '../../services/authService';
-import { extract10DigitIndianMobile } from './AuthPages';
+import { extract10DigitIndianMobile } from '../../utils/phone';
 
 export const CompleteProfilePage: React.FC = () => {
   const navigate = useNavigate();

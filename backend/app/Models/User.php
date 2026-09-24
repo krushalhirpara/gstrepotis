@@ -64,6 +64,11 @@ class User extends Authenticatable
         return $this->hasMany(OtpVerification::class);
     }
 
+    public function loginOtpVerifications()
+    {
+        return $this->hasMany(LoginOtpVerification::class);
+    }
+
     public function clients()
     {
         return $this->hasMany(Client::class);

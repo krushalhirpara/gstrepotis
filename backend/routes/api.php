@@ -13,21 +13,22 @@ use App\Http\Controllers\GstAuditController;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes
+| API Routes - GST REPOTIS
 |--------------------------------------------------------------------------
 */
 
-// Authentication System (Email/Mobile + Password + Mandatory Mobile OTP)
+// Authentication System (Signup Direct, Login with Email OTP, Password Reset)
 Route::prefix('auth')->group(function () {
-    // Signup with Mobile OTP
-    Route::post('/register/request-otp', [AuthController::class, 'requestRegistrationOtp']);
-    Route::post('/register/verify-otp', [AuthController::class, 'verifyRegistrationOtp']);
-    Route::post('/register/resend-otp', [AuthController::class, 'resendRegistrationOtp']);
+    // Signup (Option 1: Direct Name + Mobile + Email + Password)
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/signup', [AuthController::class, 'register']);
 
-    // Login (Email or Mobile + Password)
+    // Login (Email or Mobile + Password -> Mandatory Email OTP Challenge)
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/login/verify-otp', [AuthController::class, 'verifyLoginOtp']);
+    Route::post('/login/resend-otp', [AuthController::class, 'resendLoginOtp']);
 
-    // Password Reset
+    // Password Reset (Email-based verification)
     Route::post('/forgot-password/request', [AuthController::class, 'forgotPasswordRequest']);
     Route::post('/forgot-password/reset', [AuthController::class, 'forgotPasswordReset']);
 
@@ -95,17 +96,22 @@ Route::prefix('subscription')->group(function () {
 
 // Admin Control Panel
 Route::prefix('admin')->group(function () {
+    // Public admin login
     Route::post('/login', [AdminController::class, 'login']);
-    Route::get('/metrics', [AdminController::class, 'getMetrics']);
-    Route::get('/users', [AdminController::class, 'getUsers']);
-    Route::get('/users/{id}', [AdminController::class, 'getUserDetails']);
-    Route::post('/users/{id}/toggle-status', [AdminController::class, 'toggleUserStatus']);
-    Route::get('/banks', [AdminController::class, 'getBanks']);
-    Route::post('/banks', [AdminController::class, 'addBank']);
-    Route::get('/marketplaces', [AdminController::class, 'getMarketplaces']);
-    Route::get('/hsn', [AdminController::class, 'getHsnMaster']);
-    Route::post('/hsn', [AdminController::class, 'addHsn']);
-    Route::get('/audit-logs', [AdminController::class, 'getAuditLogs']);
+
+    // Protected admin management routes (Enforced server-side)
+    Route::middleware('auth.admin')->group(function () {
+        Route::get('/metrics', [AdminController::class, 'getMetrics']);
+        Route::get('/users', [AdminController::class, 'getUsers']);
+        Route::get('/users/{id}', [AdminController::class, 'getUserDetails']);
+        Route::post('/users/{id}/toggle-status', [AdminController::class, 'toggleUserStatus']);
+        Route::get('/banks', [AdminController::class, 'getBanks']);
+        Route::post('/banks', [AdminController::class, 'addBank']);
+        Route::get('/marketplaces', [AdminController::class, 'getMarketplaces']);
+        Route::get('/hsn', [AdminController::class, 'getHsnMaster']);
+        Route::post('/hsn', [AdminController::class, 'addHsn']);
+        Route::get('/audit-logs', [AdminController::class, 'getAuditLogs']);
+    });
 });
 
 // GST Audit & Reconciliation Workspace Module (Protected with auth.token)

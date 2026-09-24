@@ -408,7 +408,7 @@ export const AdminUsers: React.FC = () => {
         <div>
           <h2 className="text-xl font-extrabold text-black">User Management Console</h2>
           <p className="text-xs text-[#666666] mt-0.5">
-            Real-time registered users, verified Google Authentication credentials, mobile contacts, and credits.
+            Real-time registered users, verified database accounts, mobile contacts, and credits.
           </p>
         </div>
 
@@ -468,8 +468,7 @@ export const AdminUsers: React.FC = () => {
           </div>
           <h3 className="text-base font-bold text-neutral-900">Waiting for User Registrations</h3>
           <p className="text-xs text-neutral-500 max-w-md mx-auto">
-            Whenever any user signs up or signs in using <strong>"Continue with Google"</strong> on{' '}
-            <span className="font-mono text-black">https://gstrepotis.com</span>, their verified details will immediately appear here in real time.
+            Whenever any user signs up on <span className="font-mono text-black">https://gstrepotis.com</span>, their verified details will immediately appear here in real time.
           </p>
         </div>
       ) : (

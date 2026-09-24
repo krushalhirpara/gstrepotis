@@ -15,6 +15,7 @@ export interface AuthUser {
   provider?: string;
   last_login_at?: string | null;
   created_at?: string | null;
+  email_verified_at?: string | null;
   mobile_verified_at?: string | null;
 }
 
@@ -26,37 +27,28 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-export interface RequestOtpResponse {
+export interface LoginChallengeResponse {
   status: string;
-  message: string;
-  registration_id: string;
-  mobile_masked: string;
+  requires_otp: boolean;
+  challenge_id: string;
+  email_masked: string;
   expires_in_seconds?: number;
   cooldown_seconds?: number;
+  message?: string;
 }
 
 /**
- * Request Mobile OTP for new account registration
+ * Direct Signup (Option 1: Name + Mobile + Email + Password)
+ * NO OTP during signup. Creates user account immediately.
  */
-export async function requestSignupOtp(data: {
+export async function signup(data: {
   name: string;
   email: string;
   mobile: string;
   password: string;
   password_confirmation: string;
-}): Promise<RequestOtpResponse> {
-  const response = await apiClient.post('/api/auth/register/request-otp', data);
-  return response;
-}
-
-/**
- * Verify 6-digit Mobile OTP & complete account creation
- */
-export async function verifySignupOtp(data: {
-  registration_id: string;
-  otp: string;
 }): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/register/verify-otp', data);
+  const response: AuthResponse = await apiClient.post('/api/auth/register', data);
 
   if (response.access_token) {
     localStorage.setItem('gst_token', response.access_token);
@@ -69,22 +61,24 @@ export async function verifySignupOtp(data: {
 }
 
 /**
- * Resend Mobile OTP for registration
- */
-export async function resendSignupOtp(data: {
-  registration_id: string;
-}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
-  return await apiClient.post('/api/auth/register/resend-otp', data);
-}
-
-/**
- * Login with Email ID or Mobile Number + Password
+ * Step 1 Login: Verify Email/Mobile + Password -> Trigger Email OTP Challenge
  */
 export async function loginWithCredentials(data: {
   login: string;
   password: string;
+}): Promise<LoginChallengeResponse> {
+  const response: LoginChallengeResponse = await apiClient.post('/api/auth/login', data);
+  return response;
+}
+
+/**
+ * Step 2 Login: Verify 6-digit Email OTP & Complete Authentication
+ */
+export async function verifyLoginOtp(data: {
+  challenge_id: string;
+  otp: string;
 }): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/login', data);
+  const response: AuthResponse = await apiClient.post('/api/auth/login/verify-otp', data);
 
   if (response.access_token) {
     localStorage.setItem('gst_token', response.access_token);
@@ -97,7 +91,16 @@ export async function loginWithCredentials(data: {
 }
 
 /**
- * Request Password Reset OTP
+ * Resend Login Email OTP
+ */
+export async function resendLoginOtp(data: {
+  challenge_id: string;
+}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
+  return await apiClient.post('/api/auth/login/resend-otp', data);
+}
+
+/**
+ * Request Password Reset Email OTP
  */
 export async function requestPasswordReset(data: {
   login: string;
