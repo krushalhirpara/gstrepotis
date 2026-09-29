@@ -169,7 +169,7 @@ class TwilioVerifyService
                     'success' => false,
                     'status' => 'failed',
                     'error_code' => $twilioCode,
-                    'message' => 'This mobile number cannot receive OTP while the Twilio account is in trial mode. Please use a verified test number or complete Twilio production verification.',
+                    'message' => 'SMS verification is temporarily unavailable for this number. Please try again later.',
                 ];
             }
 

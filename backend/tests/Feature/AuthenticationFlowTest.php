@@ -427,7 +427,7 @@ class AuthenticationFlowTest extends TestCase
             ->assertJson([
                 'status' => 'error',
                 'code' => 'MOBILE_OTP_SEND_FAILED',
-                'message' => 'This mobile number cannot receive OTP while the Twilio account is in trial mode. Please use a verified test number or complete Twilio production verification.',
+                'message' => 'SMS verification is temporarily unavailable for this number. Please try again later.',
             ]);
 
         // Cleanup env & config
@@ -590,10 +590,9 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 15. Login using MOBILE -> OTP channel MUST be SMS/MOBILE.
-     * Generates challenge and sends OTP to registered mobile number.
+     * 15. Login using MOBILE -> Dispatches OTP to that account's registered EMAIL.
      */
-    public function test_mobile_login_routes_otp_to_sms_channel()
+    public function test_mobile_login_routes_otp_to_email_channel()
     {
         Mail::fake();
 
@@ -615,24 +614,26 @@ class AuthenticationFlowTest extends TestCase
             ->assertJson([
                 'status' => 'success',
                 'requires_otp' => true,
-                'channel' => 'sms',
-                'destination_masked' => '******3210',
-                'message' => "We've sent a 6-digit OTP to your registered mobile number.",
+                'channel' => 'email',
+                'destination_masked' => 'k***@example.com',
+                'message' => "We've sent a 6-digit OTP to your registered email.",
             ])
             ->assertJsonStructure(['challenge_id', 'channel', 'destination_masked', 'expires_in_seconds', 'cooldown_seconds']);
 
         $challengeId = $response->json('challenge_id');
 
-        // Check AuthOtp record channel is 'sms'
+        // Check AuthOtp record channel is 'email'
         $this->assertDatabaseHas('auth_otps', [
             'challenge_id' => $challengeId,
             'user_id' => $user->id,
-            'channel' => 'sms',
+            'channel' => 'email',
             'purpose' => 'login',
         ]);
 
-        // No email sent during mobile login
-        Mail::assertNothingSent();
+        // Email OTP mail must be sent to registered email
+        Mail::assertSent(OtpVerificationMail::class, function ($mail) use ($user) {
+            return $mail->hasTo($user->email);
+        });
     }
 
     /**
@@ -1075,7 +1076,7 @@ class AuthenticationFlowTest extends TestCase
             ->postJson('/api/auth/logout')
             ->assertStatus(200);
 
-        // 6. LOGIN USING: MOBILE + PASSWORD -> SMS/MOBILE OTP
+        // 6. LOGIN USING: MOBILE + PASSWORD -> EMAIL OTP (to registered user email)
         $loginMobileRes = $this->postJson('/api/auth/login', [
             'login' => '9876543210',
             'password' => 'ValidPassword123!',
@@ -1084,13 +1085,13 @@ class AuthenticationFlowTest extends TestCase
         $loginMobileRes->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'channel' => 'sms',
+                'channel' => 'email',
             ]);
 
         $challengeId2 = $loginMobileRes->json('challenge_id');
         $challenge2 = AuthOtp::where('challenge_id', $challengeId2)->first();
         $this->assertNotNull($challenge2);
-        $this->assertEquals('sms', $challenge2->channel);
+        $this->assertEquals('email', $challenge2->channel);
         $challenge2->update(['otp_hash' => hash('sha256', '999111')]);
 
         // Verify Mobile Login OTP
