@@ -607,6 +607,7 @@ export const SignUpPage: React.FC = () => {
   const [successNotice, setSuccessNotice] = useState('');
 
   // Redirect if already logged in
+  // Redirect if already logged in
   useEffect(() => {
     const token = localStorage.getItem('gst_token');
     if (token) {
@@ -614,24 +615,9 @@ export const SignUpPage: React.FC = () => {
     }
   }, [navigate]);
 
-  // Restore active signup challenge on refresh if present
+  // Clean stale signup challenge on initial mount
   useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem('gst_signup_challenge');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.signup_token) {
-          setSignupToken(parsed.signup_token);
-          setMaskedEmail(parsed.email_masked || '');
-          setMaskedMobile(parsed.mobile_masked || '');
-          setEmailCooldown(parsed.email_cooldown || 60);
-          setMobileCooldown(parsed.mobile_cooldown || 60);
-          setIsOtpStep(true);
-        }
-      }
-    } catch {
-      sessionStorage.removeItem('gst_signup_challenge');
-    }
+    sessionStorage.removeItem('gst_signup_challenge');
   }, []);
 
   // Cooldown countdown timers for Email & Mobile resend
@@ -676,22 +662,29 @@ export const SignUpPage: React.FC = () => {
     setError('');
     setSuccessNotice('');
     setIsLoading(true);
+    sessionStorage.removeItem('gst_signup_challenge');
+
+    const submittedEmail = email.trim().toLowerCase();
+    const submittedMobile = mobileParsed.canonical;
 
     try {
       const res = await signup({
         name: trimmedName,
-        email: email.trim().toLowerCase(),
-        mobile: mobileParsed.canonical,
+        email: submittedEmail,
+        mobile: submittedMobile,
         password,
         password_confirmation: passwordConfirmation,
       });
 
       setIsLoading(false);
 
-      if (res.requires_verification && res.signup_token) {
+      if (res && res.requires_verification && res.signup_token) {
+        const maskedE = res.email_masked || (submittedEmail.length > 3 ? submittedEmail[0] + '***@' + (submittedEmail.split('@')[1] || '') : submittedEmail);
+        const maskedM = res.mobile_masked || ('******' + mobileParsed.raw10.slice(-4));
+
         setSignupToken(res.signup_token);
-        setMaskedEmail(res.email_masked || email.trim().toLowerCase());
-        setMaskedMobile(res.mobile_masked || mobileParsed.canonical);
+        setMaskedEmail(maskedE);
+        setMaskedMobile(maskedM);
         setEmailCooldown(res.cooldown_seconds || 60);
         setMobileCooldown(res.cooldown_seconds || 60);
         setIsOtpStep(true);
@@ -702,8 +695,8 @@ export const SignUpPage: React.FC = () => {
           'gst_signup_challenge',
           JSON.stringify({
             signup_token: res.signup_token,
-            email_masked: res.email_masked,
-            mobile_masked: res.mobile_masked,
+            email_masked: maskedE,
+            mobile_masked: maskedM,
             email_cooldown: res.cooldown_seconds || 60,
             mobile_cooldown: res.cooldown_seconds || 60,
           })
@@ -711,11 +704,17 @@ export const SignUpPage: React.FC = () => {
       }
     } catch (err: any) {
       setIsLoading(false);
+      setIsOtpStep(false);
+      setSignupToken('');
+      setMaskedEmail('');
+      setMaskedMobile('');
+      sessionStorage.removeItem('gst_signup_challenge');
+
       console.error('Signup error:', err);
       const msg =
         err?.response?.data?.message ||
-        err?.response?.data?.errors?.email?.[0] ||
         err?.response?.data?.errors?.mobile?.[0] ||
+        err?.response?.data?.errors?.email?.[0] ||
         err?.response?.data?.errors?.password?.[0] ||
         err?.response?.data?.errors?.name?.[0] ||
         err?.message ||
