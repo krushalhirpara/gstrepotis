@@ -427,7 +427,7 @@ class AuthenticationFlowTest extends TestCase
             ->assertJson([
                 'status' => 'error',
                 'code' => 'MOBILE_OTP_SEND_FAILED',
-                'message' => 'This mobile number cannot be verified with the current Twilio trial account. Please use a verified test number.',
+                'message' => 'This mobile number cannot receive OTP while the Twilio account is in trial mode. Please use a verified test number or complete Twilio production verification.',
             ]);
 
         // Cleanup env & config

@@ -163,13 +163,13 @@ class TwilioVerifyService
                 'http_status' => $response->status(),
             ]);
 
-            // Handle Twilio Trial Account restriction (code 21608 or unverified number message)
-            if ($twilioCode == 21608 || str_contains(strtolower($twilioMsg), 'unverified')) {
+            // Handle Twilio Trial Account restriction (code 21608, 14111, or unverified recipient)
+            if ($twilioCode == 21608 || $twilioCode == 14111 || str_contains(strtolower($twilioMsg), 'unverified') || str_contains(strtolower($twilioMsg), 'trial')) {
                 return [
                     'success' => false,
                     'status' => 'failed',
-                    'error_code' => 21608,
-                    'message' => 'This mobile number cannot be verified with the current Twilio trial account. Please use a verified test number.',
+                    'error_code' => $twilioCode,
+                    'message' => 'This mobile number cannot receive OTP while the Twilio account is in trial mode. Please use a verified test number or complete Twilio production verification.',
                 ];
             }
 

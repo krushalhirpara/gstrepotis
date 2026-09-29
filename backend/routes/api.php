@@ -30,10 +30,14 @@ Route::prefix('auth')->group(function () {
     // Login (Email or Mobile + Password -> Targeted Channel OTP Challenge)
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/login/verify-otp', [AuthController::class, 'verifyLoginOtp']);
+    Route::post('/login/verify', [AuthController::class, 'verifyLoginOtp']);
     Route::post('/login/resend-otp', [AuthController::class, 'resendLoginOtp']);
+    Route::post('/login/resend', [AuthController::class, 'resendLoginOtp']);
 
     // Password Reset (Email-based verification)
+    Route::post('/forgot-password', [AuthController::class, 'forgotPasswordRequest']);
     Route::post('/forgot-password/request', [AuthController::class, 'forgotPasswordRequest']);
+    Route::post('/reset-password', [AuthController::class, 'forgotPasswordReset']);
     Route::post('/forgot-password/reset', [AuthController::class, 'forgotPasswordReset']);
 
     // Legacy / Google Auth compatibility
