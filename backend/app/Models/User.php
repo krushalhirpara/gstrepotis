@@ -59,6 +59,11 @@ class User extends Authenticatable
         'credits' => 'integer',
     ];
 
+    public function authOtps()
+    {
+        return $this->hasMany(AuthOtp::class);
+    }
+
     public function otpVerifications()
     {
         return $this->hasMany(OtpVerification::class);

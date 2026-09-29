@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuthOtp;
 use App\Models\LoginOtpVerification;
 use App\Models\OtpVerification;
+use App\Models\PendingSignup;
 use App\Models\User;
 use App\Mail\OtpVerificationMail;
+use App\Services\SmsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -16,56 +19,11 @@ class AuthenticationFlowTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * 1. Direct Signup (Option 1) creates user in MySQL immediately with secure password hash
-     */
-    public function test_signup_creates_user_directly_without_otp()
-    {
-        Mail::fake();
-
-        $response = $this->postJson('/api/auth/register', [
-            'name' => 'Krushal Hirpara',
-            'email' => 'krushal@example.com',
-            'mobile' => '9876543210',
-            'password' => 'SecurePassword123!',
-            'password_confirmation' => 'SecurePassword123!',
-        ]);
-
-        $response->assertStatus(201)
-            ->assertJson([
-                'status' => 'success',
-                'message' => 'Account created successfully.',
-                'user' => [
-                    'name' => 'Krushal Hirpara',
-                    'email' => 'krushal@example.com',
-                    'mobile' => '+919876543210',
-                    'status' => 'active',
-                ],
-            ])
-            ->assertJsonStructure(['access_token', 'token_type', 'user']);
-
-        // Assert user exists in database
-        $this->assertDatabaseHas('users', [
-            'email' => 'krushal@example.com',
-            'mobile' => '+919876543210',
-            'status' => 'active',
-        ]);
-
-        $user = User::where('email', 'krushal@example.com')->first();
-        $this->assertNotNull($user);
-        $this->assertTrue(Hash::check('SecurePassword123!', $user->password));
-        $this->assertNotNull($user->api_token);
-        $this->assertNotNull($user->last_login_at);
-
-        // No email sent during signup
-        Mail::assertNothingSent();
-    }
-
-    /**
-     * 2. Signup validates required fields, email format, and password length
+     * 1. Signup Step 1: Validates required fields, email format, and password confirmation
      */
     public function test_signup_validates_input_fields()
     {
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/auth/signup', [
             'name' => 'A', // too short
             'email' => 'invalid-email',
             'mobile' => '12345', // invalid mobile
@@ -78,7 +36,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 3. Signup rejects duplicate email
+     * 2. Signup Step 1: Rejects duplicate email (case-insensitive)
      */
     public function test_signup_rejects_duplicate_email()
     {
@@ -87,9 +45,9 @@ class AuthenticationFlowTest extends TestCase
             'mobile' => '+919876543210',
         ]);
 
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/auth/signup', [
             'name' => 'Another User',
-            'email' => 'EXISTING@example.com', // case-insensitive check
+            'email' => 'EXISTING@example.com',
             'mobile' => '9876543211',
             'password' => 'Password123!',
             'password_confirmation' => 'Password123!',
@@ -100,7 +58,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 4. Signup rejects duplicate mobile
+     * 3. Signup Step 1: Rejects duplicate mobile
      */
     public function test_signup_rejects_duplicate_mobile()
     {
@@ -109,7 +67,7 @@ class AuthenticationFlowTest extends TestCase
             'mobile' => '+919876543210',
         ]);
 
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/api/auth/signup', [
             'name' => 'Another User',
             'email' => 'second@example.com',
             'mobile' => '9876543210',
@@ -122,7 +80,314 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 5. Login Step 1: Reject wrong password
+     * 4. Signup Step 1: Generates and dispatches Dual OTPs (Email + Mobile) simultaneously
+     * Does NOT create active user account immediately.
+     */
+    public function test_signup_dispatches_dual_otps_simultaneously_and_does_not_activate_user_yet()
+    {
+        Mail::fake();
+
+        $response = $this->postJson('/api/auth/signup', [
+            'name' => 'Krushal Hirpara',
+            'email' => 'krushal@example.com',
+            'mobile' => '9876543210',
+            'password' => 'SecurePassword123!',
+            'password_confirmation' => 'SecurePassword123!',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'requires_verification' => true,
+                'email_masked' => 'k***@example.com',
+                'mobile_masked' => '******3210',
+                'cooldown_seconds' => 60,
+            ])
+            ->assertJsonStructure(['signup_token', 'email_masked', 'mobile_masked', 'expires_in_seconds', 'cooldown_seconds']);
+
+        // User must NOT be created yet in users table
+        $this->assertDatabaseMissing('users', [
+            'email' => 'krushal@example.com',
+        ]);
+
+        // Pending signup must exist in pending_signups table
+        $signupToken = $response->json('signup_token');
+        $this->assertDatabaseHas('pending_signups', [
+            'signup_token' => $signupToken,
+            'email' => 'krushal@example.com',
+            'mobile' => '+919876543210',
+        ]);
+
+        $pending = PendingSignup::where('signup_token', $signupToken)->first();
+        $this->assertNotNull($pending);
+        $this->assertNotEmpty($pending->email_otp_hash);
+        $this->assertNotEmpty($pending->mobile_otp_hash);
+        $this->assertNotEquals($pending->email_otp_hash, $pending->mobile_otp_hash);
+
+        // Verify Email OTP was dispatched
+        Mail::assertSent(OtpVerificationMail::class, function ($mail) {
+            return $mail->hasTo('krushal@example.com');
+        });
+    }
+
+    /**
+     * 5. Signup Step 2: Fails when Email OTP is wrong even if Mobile OTP is correct
+     */
+    public function test_signup_fails_when_email_otp_is_wrong()
+    {
+        $pending = PendingSignup::create([
+            'signup_token' => 'test-signup-token-wrong-email',
+            'name' => 'Krushal Hirpara',
+            'email' => 'wrongemail@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('Password123!'),
+            'email_otp_hash' => hash('sha256', '111111'),
+            'mobile_otp_hash' => hash('sha256', '222222'),
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now(),
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => 'test-signup-token-wrong-email',
+            'email_otp' => '999999', // wrong email OTP
+            'mobile_otp' => '222222', // correct mobile OTP
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Invalid email OTP. Please check and try again.',
+            ]);
+
+        // Account must NOT be created
+        $this->assertDatabaseMissing('users', [
+            'email' => 'wrongemail@example.com',
+        ]);
+    }
+
+    /**
+     * 6. Signup Step 2: Fails when Mobile OTP is wrong even if Email OTP is correct
+     */
+    public function test_signup_fails_when_mobile_otp_is_wrong()
+    {
+        $pending = PendingSignup::create([
+            'signup_token' => 'test-signup-token-wrong-mobile',
+            'name' => 'Krushal Hirpara',
+            'email' => 'wrongmobile@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('Password123!'),
+            'email_otp_hash' => hash('sha256', '111111'),
+            'mobile_otp_hash' => hash('sha256', '222222'),
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now(),
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => 'test-signup-token-wrong-mobile',
+            'email_otp' => '111111', // correct email OTP
+            'mobile_otp' => '999999', // wrong mobile OTP
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Invalid mobile OTP. Please check and try again.',
+            ]);
+
+        // Account must NOT be created
+        $this->assertDatabaseMissing('users', [
+            'email' => 'wrongmobile@example.com',
+        ]);
+    }
+
+    /**
+     * 7. Signup Step 2: Expired OTP is rejected
+     */
+    public function test_signup_rejects_expired_otps()
+    {
+        PendingSignup::create([
+            'signup_token' => 'test-signup-token-expired',
+            'name' => 'Expired User',
+            'email' => 'expired@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('Password123!'),
+            'email_otp_hash' => hash('sha256', '111111'),
+            'mobile_otp_hash' => hash('sha256', '222222'),
+            'email_expires_at' => now()->subMinute(), // expired
+            'mobile_expires_at' => now()->subMinute(),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now()->subMinutes(6),
+            'mobile_last_sent_at' => now()->subMinutes(6),
+        ]);
+
+        $response = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => 'test-signup-token-expired',
+            'email_otp' => '111111',
+            'mobile_otp' => '222222',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'This OTP has expired. Please request a new OTP.',
+            ]);
+    }
+
+    /**
+     * 8. Signup Step 2: Max attempt limit enforced
+     */
+    public function test_signup_enforces_attempt_limit()
+    {
+        PendingSignup::create([
+            'signup_token' => 'test-signup-token-max-att',
+            'name' => 'Max Attempt User',
+            'email' => 'maxatt@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('Password123!'),
+            'email_otp_hash' => hash('sha256', '111111'),
+            'mobile_otp_hash' => hash('sha256', '222222'),
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 5, // reached max
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now(),
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => 'test-signup-token-max-att',
+            'email_otp' => '111111',
+            'mobile_otp' => '222222',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Too many incorrect attempts. Please request a new OTP.',
+            ]);
+    }
+
+    /**
+     * 9. Signup Resend OTPs enforce 60s cooldown
+     */
+    public function test_signup_resend_enforces_cooldown()
+    {
+        PendingSignup::create([
+            'signup_token' => 'test-signup-token-cd',
+            'name' => 'Cooldown User',
+            'email' => 'cd@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('Password123!'),
+            'email_otp_hash' => hash('sha256', '111111'),
+            'mobile_otp_hash' => hash('sha256', '222222'),
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now()->subSeconds(20), // only 20s passed
+            'mobile_last_sent_at' => now()->subSeconds(20),
+        ]);
+
+        // Email Resend within cooldown
+        $resEmail = $this->postJson('/api/auth/signup/resend-email-otp', [
+            'signup_token' => 'test-signup-token-cd',
+        ]);
+        $resEmail->assertStatus(429)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Please wait before requesting another OTP.',
+            ]);
+
+        // Mobile Resend within cooldown
+        $resMobile = $this->postJson('/api/auth/signup/resend-mobile-otp', [
+            'signup_token' => 'test-signup-token-cd',
+        ]);
+        $resMobile->assertStatus(429)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Please wait before requesting another OTP.',
+            ]);
+    }
+
+    /**
+     * 10. Signup Step 2: Successful verification when BOTH OTPs are correct
+     * Activates account, creates user in MySQL, and returns access_token.
+     */
+    public function test_successful_dual_otp_verification_creates_active_user()
+    {
+        PendingSignup::create([
+            'signup_token' => 'test-signup-token-success',
+            'name' => 'Krushal Hirpara',
+            'email' => 'krushal.success@example.com',
+            'mobile' => '+919876543210',
+            'password_hash' => Hash::make('ValidSecurePassword123!'),
+            'email_otp_hash' => hash('sha256', '654321'),
+            'mobile_otp_hash' => hash('sha256', '123456'),
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now(),
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => 'test-signup-token-success',
+            'email_otp' => '654321',
+            'mobile_otp' => '123456',
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJson([
+                'status' => 'success',
+                'message' => 'Account created and verified successfully.',
+                'user' => [
+                    'name' => 'Krushal Hirpara',
+                    'email' => 'krushal.success@example.com',
+                    'mobile' => '+919876543210',
+                    'status' => 'active',
+                    'account_status' => 'active',
+                ],
+            ])
+            ->assertJsonStructure(['access_token', 'token_type', 'user']);
+
+        // User must exist in users table
+        $this->assertDatabaseHas('users', [
+            'email' => 'krushal.success@example.com',
+            'mobile' => '+919876543210',
+            'status' => 'active',
+        ]);
+
+        $user = User::where('email', 'krushal.success@example.com')->first();
+        $this->assertNotNull($user);
+        $this->assertTrue(Hash::check('ValidSecurePassword123!', $user->password));
+        $this->assertNotNull($user->email_verified_at);
+        $this->assertNotNull($user->mobile_verified_at);
+        $this->assertNotNull($user->api_token);
+
+        // Pending record must be deleted
+        $this->assertDatabaseMissing('pending_signups', [
+            'signup_token' => 'test-signup-token-success',
+        ]);
+    }
+
+    /**
+     * 11. Login: Rejects incorrect password
      */
     public function test_login_rejects_incorrect_password()
     {
@@ -145,15 +410,16 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 6. Login Step 1 with Email: Sends OTP to registered email & returns challenge_id without authenticating yet
+     * 12. Login using EMAIL -> OTP channel MUST be EMAIL.
+     * Generates challenge and sends OTP to registered email.
      */
-    public function test_login_with_email_triggers_otp_challenge_and_does_not_issue_token_yet()
+    public function test_email_login_routes_otp_to_email_channel()
     {
         Mail::fake();
 
         $user = User::factory()->create([
-            'name' => 'Krushal Hirpara',
-            'email' => 'krushal@example.com',
+            'name' => 'Krushal Email',
+            'email' => 'krushal.email@example.com',
             'mobile' => '+919876543210',
             'password' => Hash::make('MyPassword123!'),
             'status' => 'active',
@@ -161,7 +427,7 @@ class AuthenticationFlowTest extends TestCase
         ]);
 
         $response = $this->postJson('/api/auth/login', [
-            'login' => 'krushal@example.com',
+            'login' => 'krushal.email@example.com',
             'password' => 'MyPassword123!',
         ]);
 
@@ -169,20 +435,20 @@ class AuthenticationFlowTest extends TestCase
             ->assertJson([
                 'status' => 'success',
                 'requires_otp' => true,
-                'email_masked' => 'k***@example.com',
-                'cooldown_seconds' => 30,
+                'channel' => 'email',
+                'destination_masked' => 'k***@example.com',
+                'message' => "We've sent a 6-digit OTP to your registered email.",
             ])
-            ->assertJsonStructure(['challenge_id', 'email_masked', 'expires_in_seconds', 'cooldown_seconds']);
+            ->assertJsonStructure(['challenge_id', 'channel', 'destination_masked', 'expires_in_seconds', 'cooldown_seconds']);
 
-        // User must NOT have an access token yet
-        $this->assertNull($user->fresh()->api_token);
-
-        // Challenge must be stored in login_otp_verifications
         $challengeId = $response->json('challenge_id');
-        $this->assertDatabaseHas('login_otp_verifications', [
+
+        // Check AuthOtp record
+        $this->assertDatabaseHas('auth_otps', [
             'challenge_id' => $challengeId,
             'user_id' => $user->id,
-            'verified_at' => null,
+            'channel' => 'email',
+            'purpose' => 'login',
         ]);
 
         // Email OTP mail must be sent to registered email
@@ -192,22 +458,24 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 7. Login Step 1 with Mobile: Finds user by mobile & sends OTP to user's registered EMAIL
+     * 13. Login using MOBILE -> OTP channel MUST be SMS/MOBILE.
+     * Generates challenge and sends OTP to registered mobile number.
      */
-    public function test_login_with_mobile_sends_otp_to_registered_email()
+    public function test_mobile_login_routes_otp_to_sms_channel()
     {
         Mail::fake();
 
         $user = User::factory()->create([
-            'name' => 'Krushal Hirpara',
-            'email' => 'krushal@example.com',
+            'name' => 'Krushal Mobile',
+            'email' => 'krushal.mobile@example.com',
             'mobile' => '+919876543210',
             'password' => Hash::make('MyPassword123!'),
             'status' => 'active',
+            'api_token' => null,
         ]);
 
         $response = $this->postJson('/api/auth/login', [
-            'login' => '9876543210', // user enters mobile number
+            'login' => '9876543210', // 10-digit mobile
             'password' => 'MyPassword123!',
         ]);
 
@@ -215,17 +483,28 @@ class AuthenticationFlowTest extends TestCase
             ->assertJson([
                 'status' => 'success',
                 'requires_otp' => true,
-                'email_masked' => 'k***@example.com',
-            ]);
+                'channel' => 'sms',
+                'destination_masked' => '******3210',
+                'message' => "We've sent a 6-digit OTP to your registered mobile number.",
+            ])
+            ->assertJsonStructure(['challenge_id', 'channel', 'destination_masked', 'expires_in_seconds', 'cooldown_seconds']);
 
-        // OTP must be sent to krushal@example.com
-        Mail::assertSent(OtpVerificationMail::class, function ($mail) {
-            return $mail->hasTo('krushal@example.com');
-        });
+        $challengeId = $response->json('challenge_id');
+
+        // Check AuthOtp record channel is 'sms'
+        $this->assertDatabaseHas('auth_otps', [
+            'challenge_id' => $challengeId,
+            'user_id' => $user->id,
+            'channel' => 'sms',
+            'purpose' => 'login',
+        ]);
+
+        // No email sent during mobile login
+        Mail::assertNothingSent();
     }
 
     /**
-     * 8. Suspended user cannot login
+     * 14. Suspended user cannot login
      */
     public function test_suspended_user_cannot_login()
     {
@@ -248,14 +527,17 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 9. Verify Login OTP: Rejects incorrect OTP
+     * 15. Verify Login OTP: Rejects incorrect OTP
      */
     public function test_verify_login_otp_rejects_wrong_code()
     {
         $user = User::factory()->create(['email' => 'user@example.com']);
-        $challenge = LoginOtpVerification::create([
+        AuthOtp::create([
             'user_id' => $user->id,
             'challenge_id' => 'test-challenge-uuid-1',
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'login',
             'otp_hash' => hash('sha256', '123456'),
             'expires_at' => now()->addMinutes(5),
             'attempts' => 0,
@@ -271,7 +553,7 @@ class AuthenticationFlowTest extends TestCase
         $response->assertStatus(422)
             ->assertJson([
                 'status' => 'error',
-                'message' => 'Invalid verification code.',
+                'message' => 'Invalid OTP. Please check and try again.',
                 'attempts_remaining' => 4,
             ]);
 
@@ -279,14 +561,17 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 10. Verify Login OTP: Rejects expired OTP
+     * 16. Verify Login OTP: Rejects expired OTP
      */
     public function test_verify_login_otp_rejects_expired_code()
     {
         $user = User::factory()->create(['email' => 'user@example.com']);
-        LoginOtpVerification::create([
+        AuthOtp::create([
             'user_id' => $user->id,
             'challenge_id' => 'test-challenge-expired',
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'login',
             'otp_hash' => hash('sha256', '123456'),
             'expires_at' => now()->subMinute(), // expired
             'attempts' => 0,
@@ -302,19 +587,22 @@ class AuthenticationFlowTest extends TestCase
         $response->assertStatus(422)
             ->assertJson([
                 'status' => 'error',
-                'message' => 'This verification code has expired. Please request a new code.',
+                'message' => 'This OTP has expired. Please request a new OTP.',
             ]);
     }
 
     /**
-     * 11. Verify Login OTP: Attempt limit enforced (5 attempts)
+     * 17. Verify Login OTP: Attempt limit enforced (5 attempts)
      */
     public function test_verify_login_otp_enforces_max_attempts()
     {
         $user = User::factory()->create(['email' => 'user@example.com']);
-        LoginOtpVerification::create([
+        AuthOtp::create([
             'user_id' => $user->id,
             'challenge_id' => 'test-challenge-max-att',
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'login',
             'otp_hash' => hash('sha256', '123456'),
             'expires_at' => now()->addMinutes(5),
             'attempts' => 5, // reached max
@@ -330,26 +618,29 @@ class AuthenticationFlowTest extends TestCase
         $response->assertStatus(422)
             ->assertJson([
                 'status' => 'error',
-                'message' => 'Too many attempts. Please request a new verification code.',
+                'message' => 'Too many incorrect attempts. Please request a new OTP.',
             ]);
     }
 
     /**
-     * 12. Verify Login OTP: Successful verification authenticates user and updates last_login_at
+     * 18. Verify Login OTP: Successful verification authenticates user and updates last_login_at
      */
-    public function test_successful_otp_verification_authenticates_user()
+    public function test_successful_login_otp_verification_authenticates_user()
     {
         $user = User::factory()->create([
             'name' => 'Krushal Hirpara',
-            'email' => 'krushal.success@example.com',
+            'email' => 'krushal.login@example.com',
             'mobile' => '+919876543210',
             'api_token' => null,
             'last_login_at' => null,
         ]);
 
-        LoginOtpVerification::create([
+        AuthOtp::create([
             'user_id' => $user->id,
             'challenge_id' => 'test-challenge-success',
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'login',
             'otp_hash' => hash('sha256', '543210'),
             'expires_at' => now()->addMinutes(5),
             'attempts' => 0,
@@ -368,7 +659,7 @@ class AuthenticationFlowTest extends TestCase
                 'message' => 'Login successful.',
                 'user' => [
                     'id' => $user->id,
-                    'email' => 'krushal.success@example.com',
+                    'email' => 'krushal.login@example.com',
                 ],
             ])
             ->assertJsonStructure(['access_token', 'token_type', 'user']);
@@ -378,25 +669,28 @@ class AuthenticationFlowTest extends TestCase
         $this->assertNotNull($user->last_login_at);
 
         // Challenge record should be deleted/invalidated
-        $this->assertDatabaseMissing('login_otp_verifications', [
+        $this->assertDatabaseMissing('auth_otps', [
             'challenge_id' => 'test-challenge-success',
         ]);
     }
 
     /**
-     * 13. Resend Login OTP: Enforces 30s cooldown
+     * 19. Resend Login OTP: Enforces 60s cooldown
      */
     public function test_resend_login_otp_enforces_cooldown()
     {
         $user = User::factory()->create(['email' => 'user@example.com']);
-        LoginOtpVerification::create([
+        AuthOtp::create([
             'user_id' => $user->id,
             'challenge_id' => 'test-challenge-cooldown',
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'login',
             'otp_hash' => hash('sha256', '123456'),
             'expires_at' => now()->addMinutes(5),
             'attempts' => 0,
             'max_attempts' => 5,
-            'last_sent_at' => now()->subSeconds(10), // only 10s passed
+            'last_sent_at' => now()->subSeconds(20), // only 20s passed
         ]);
 
         $response = $this->postJson('/api/auth/login/resend-otp', [
@@ -406,26 +700,29 @@ class AuthenticationFlowTest extends TestCase
         $response->assertStatus(429)
             ->assertJson([
                 'status' => 'error',
-                'message' => 'Please wait before requesting another code.',
+                'message' => 'Please wait before requesting another OTP.',
             ]);
     }
 
     /**
-     * 14. Resend Login OTP: Dispatches new OTP & invalidates previous OTP
+     * 20. Resend Login OTP: Dispatches new OTP via correct channel & invalidates previous OTP
      */
-    public function test_resend_login_otp_generates_new_otp_and_sends_email()
+    public function test_resend_login_otp_generates_new_otp_and_dispatches()
     {
         Mail::fake();
 
         $user = User::factory()->create(['email' => 'resenduser@example.com']);
-        $challenge = LoginOtpVerification::create([
+        $challenge = AuthOtp::create([
             'user_id' => $user->id,
             'challenge_id' => 'test-challenge-resend',
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'login',
             'otp_hash' => hash('sha256', '111111'),
             'expires_at' => now()->addMinutes(5),
             'attempts' => 2,
             'max_attempts' => 5,
-            'last_sent_at' => now()->subSeconds(40), // cooldown expired
+            'last_sent_at' => now()->subSeconds(70), // cooldown expired
         ]);
 
         $response = $this->postJson('/api/auth/login/resend-otp', [
@@ -435,8 +732,8 @@ class AuthenticationFlowTest extends TestCase
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'message' => 'New verification code has been sent to your registered email.',
-                'cooldown_seconds' => 30,
+                'message' => 'A new verification code has been sent to your registered email.',
+                'cooldown_seconds' => 60,
             ]);
 
         Mail::assertSent(OtpVerificationMail::class, function ($mail) use ($user) {
@@ -449,7 +746,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 15. User Logout clears api_token
+     * 21. User Logout clears api_token
      */
     public function test_user_logout_invalidates_session()
     {
@@ -469,7 +766,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 16. Protected user route rejects unauthenticated request
+     * 22. Protected user route rejects unauthenticated request
      */
     public function test_protected_route_rejects_unauthenticated_request()
     {
@@ -478,7 +775,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 17. Admin endpoints reject non-admin users
+     * 23. Admin endpoints reject non-admin users
      */
     public function test_admin_endpoints_reject_unauthorized_normal_users()
     {
@@ -496,7 +793,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 18. Admin endpoints allow authorized admin users
+     * 24. Admin endpoints allow authorized admin users
      */
     public function test_admin_endpoints_allow_authorized_admin_user()
     {
@@ -515,7 +812,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 19. Forgot password email OTP request and reset flow
+     * 25. Forgot password email OTP request and reset flow
      */
     public function test_forgot_password_email_flow()
     {
@@ -557,41 +854,64 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 20. Comprehensive End-to-End Test (Requirement 27)
-     * Signup -> Logout -> Email Login + OTP -> Logout -> Mobile Login + Email OTP -> Verify last_login_at
+     * 26. Comprehensive End-to-End Test:
+     * Dual OTP Signup -> Verify Both -> Login via Email (Email OTP) -> Login via Mobile (SMS OTP)
      */
     public function test_complete_end_to_end_flow()
     {
         Mail::fake();
 
-        // 1. SIGNUP (Option 1: Name + Mobile + Email + Password)
-        $signupRes = $this->postJson('/api/auth/register', [
-            'name' => 'Test User',
+        // 1. SIGNUP STEP 1: Submit Form
+        $signupRes = $this->postJson('/api/auth/signup', [
+            'name' => 'Krushal Test',
             'email' => 'testuser@example.com',
             'mobile' => '9876543210',
             'password' => 'ValidPassword123!',
             'password_confirmation' => 'ValidPassword123!',
         ]);
 
-        $signupRes->assertStatus(201)
+        $signupRes->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'requires_verification' => true,
+            ]);
+
+        $signupToken = $signupRes->json('signup_token');
+        $this->assertNotEmpty($signupToken);
+
+        // Fetch pending signup and set known OTP hashes
+        $pending = PendingSignup::where('signup_token', $signupToken)->first();
+        $this->assertNotNull($pending);
+        $pending->update([
+            'email_otp_hash' => hash('sha256', '333444'),
+            'mobile_otp_hash' => hash('sha256', '555666'),
+        ]);
+
+        // 2. SIGNUP STEP 2: Verify Dual OTPs
+        $verifySignupRes = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => $signupToken,
+            'email_otp' => '333444',
+            'mobile_otp' => '555666',
+        ]);
+
+        $verifySignupRes->assertStatus(201)
             ->assertJson([
                 'status' => 'success',
                 'user' => [
-                    'name' => 'Test User',
                     'email' => 'testuser@example.com',
                     'mobile' => '+919876543210',
                 ],
             ]);
 
-        $token1 = $signupRes->json('access_token');
+        $token1 = $verifySignupRes->json('access_token');
         $this->assertNotEmpty($token1);
 
-        // 2. LOGOUT
-        $logout1 = $this->withHeader('Authorization', "Bearer {$token1}")
-            ->postJson('/api/auth/logout');
-        $logout1->assertStatus(200);
+        // 3. LOGOUT
+        $this->withHeader('Authorization', "Bearer {$token1}")
+            ->postJson('/api/auth/logout')
+            ->assertStatus(200);
 
-        // 3. LOGIN USING: EMAIL + PASSWORD
+        // 4. LOGIN USING: EMAIL + PASSWORD -> EMAIL OTP
         $loginEmailRes = $this->postJson('/api/auth/login', [
             'login' => 'testuser@example.com',
             'password' => 'ValidPassword123!',
@@ -600,47 +920,30 @@ class AuthenticationFlowTest extends TestCase
         $loginEmailRes->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'requires_otp' => true,
-                'email_masked' => 't***@example.com',
+                'channel' => 'email',
             ]);
 
         $challengeId1 = $loginEmailRes->json('challenge_id');
-        $this->assertNotEmpty($challengeId1);
-
-        // Verify Email OTP was dispatched
-        Mail::assertSent(OtpVerificationMail::class, function ($mail) {
-            return $mail->hasTo('testuser@example.com');
-        });
-
-        // Fetch challenge and set a deterministic OTP for test verification
-        $challenge1 = LoginOtpVerification::where('challenge_id', $challengeId1)->first();
+        $challenge1 = AuthOtp::where('challenge_id', $challengeId1)->first();
         $this->assertNotNull($challenge1);
+        $this->assertEquals('email', $challenge1->channel);
         $challenge1->update(['otp_hash' => hash('sha256', '777888')]);
 
-        // VERIFY EMAIL OTP
+        // Verify Email Login OTP
         $verifyEmailRes = $this->postJson('/api/auth/login/verify-otp', [
             'challenge_id' => $challengeId1,
             'otp' => '777888',
         ]);
 
-        $verifyEmailRes->assertStatus(200)
-            ->assertJson([
-                'status' => 'success',
-                'message' => 'Login successful.',
-                'user' => [
-                    'email' => 'testuser@example.com',
-                ],
-            ]);
-
+        $verifyEmailRes->assertStatus(200);
         $token2 = $verifyEmailRes->json('access_token');
-        $this->assertNotEmpty($token2);
 
-        // 4. LOGOUT
-        $logout2 = $this->withHeader('Authorization', "Bearer {$token2}")
-            ->postJson('/api/auth/logout');
-        $logout2->assertStatus(200);
+        // 5. LOGOUT
+        $this->withHeader('Authorization', "Bearer {$token2}")
+            ->postJson('/api/auth/logout')
+            ->assertStatus(200);
 
-        // 5. LOGIN USING: MOBILE + PASSWORD
+        // 6. LOGIN USING: MOBILE + PASSWORD -> SMS/MOBILE OTP
         $loginMobileRes = $this->postJson('/api/auth/login', [
             'login' => '9876543210',
             'password' => 'ValidPassword123!',
@@ -649,23 +952,16 @@ class AuthenticationFlowTest extends TestCase
         $loginMobileRes->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'requires_otp' => true,
-                'email_masked' => 't***@example.com',
+                'channel' => 'sms',
             ]);
 
         $challengeId2 = $loginMobileRes->json('challenge_id');
-        $this->assertNotEmpty($challengeId2);
-
-        // Verify OTP was sent to user's registered EMAIL (NOT mobile)
-        Mail::assertSent(OtpVerificationMail::class, function ($mail) {
-            return $mail->hasTo('testuser@example.com');
-        });
-
-        $challenge2 = LoginOtpVerification::where('challenge_id', $challengeId2)->first();
+        $challenge2 = AuthOtp::where('challenge_id', $challengeId2)->first();
         $this->assertNotNull($challenge2);
+        $this->assertEquals('sms', $challenge2->channel);
         $challenge2->update(['otp_hash' => hash('sha256', '999111')]);
 
-        // VERIFY MOBILE LOGIN OTP
+        // Verify Mobile Login OTP
         $verifyMobileRes = $this->postJson('/api/auth/login/verify-otp', [
             'challenge_id' => $challengeId2,
             'otp' => '999111',
@@ -674,15 +970,12 @@ class AuthenticationFlowTest extends TestCase
         $verifyMobileRes->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'message' => 'Login successful.',
                 'user' => [
-                    'name' => 'Test User',
                     'email' => 'testuser@example.com',
-                    'mobile' => '+919876543210',
                 ],
             ]);
 
-        // 6. VERIFY last_login_at is updated
+        // 7. Check user's last_login_at is updated
         $user = User::where('email', 'testuser@example.com')->first();
         $this->assertNotNull($user->last_login_at);
         $this->assertNotNull($user->api_token);

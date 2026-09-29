@@ -17,7 +17,7 @@ class SmsService
     {
         $this->provider = strtolower(env('SMS_PROVIDER', 'log'));
         $this->apiKey = env('SMS_API_KEY') ?: env('FAST2SMS_API_KEY') ?: env('MSG91_AUTH_KEY') ?: env('TWOFACTOR_API_KEY');
-        $this->senderId = env('SMS_SENDER_ID', 'GSTSTE');
+        $this->senderId = env('SMS_SENDER_ID', 'GSTREP');
         $this->templateId = env('SMS_TEMPLATE_ID');
     }
 
@@ -26,16 +26,29 @@ class SmsService
      *
      * @param string $mobile Normalized mobile number (e.g. +919876543210 or 9876543210)
      * @param string $otp 6-digit OTP
+     * @param string $purpose Purpose of OTP ('signup', 'login', 'password_reset')
      * @return bool Whether dispatch was initiated successfully
      */
-    public function sendOtp(string $mobile, string $otp): bool
+    public function sendOtp(string $mobile, string $otp, string $purpose = 'signup'): bool
     {
         $cleanDigits = preg_replace('/\D/', '', $mobile);
         $tenDigitMobile = substr($cleanDigits, -10);
 
-        $message = "Your GST Suite verification OTP is: {$otp}. Valid for 5 minutes. Please do not share this code with anyone.";
+        if (strlen($tenDigitMobile) !== 10) {
+            Log::error("SMS_SERVICE_ERROR: Invalid 10-digit mobile number format: {$mobile}");
+            return false;
+        }
 
-        // 1. Fast2SMS Provider (Very popular Indian SMS gateway)
+        $actionText = match ($purpose) {
+            'login' => 'login verification',
+            'signup' => 'account verification',
+            'password_reset' => 'password reset',
+            default => 'verification',
+        };
+
+        $message = "Your GST REPOTIS {$actionText} OTP is: {$otp}. Valid for 5 minutes. Do not share this code with anyone.";
+
+        // 1. Fast2SMS Provider (Indian SMS gateway)
         if ($this->provider === 'fast2sms') {
             if (!$this->apiKey) {
                 Log::error("SMS_SERVICE_ERROR: FAST2SMS API key is missing. Please set SMS_API_KEY in environment variables.");
@@ -145,14 +158,15 @@ class SmsService
             }
         }
 
-        // 5. Development / Fallback Log Mode
-        if (in_array($this->provider, ['log', 'array', 'testing', 'local'])) {
-            Log::info("SMS_OTP_DISPATCH (LOCAL_DEV_LOG)", [
-                'provider' => $this->provider,
-                'mobile' => "+91{$tenDigitMobile}",
-                'otp' => $otp,
-                'message' => $message,
-            ]);
+        // 5. Development / Fallback Log Mode (Never logged in production)
+        if (in_array($this->provider, ['log', 'array', 'testing', 'local', ''])) {
+            if (!app()->environment('production')) {
+                Log::info("SMS_OTP_DISPATCH (DEV_MODE)", [
+                    'provider' => $this->provider,
+                    'mobile' => "+91{$tenDigitMobile}",
+                    'purpose' => $purpose,
+                ]);
+            }
             return true;
         }
 

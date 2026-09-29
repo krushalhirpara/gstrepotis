@@ -14,17 +14,26 @@ class OtpVerificationMail extends Mailable
 
     public string $otp;
     public string $userName;
+    public string $purpose;
 
-    public function __construct(string $otp, string $userName = 'User')
+    public function __construct(string $otp, string $userName = 'User', string $purpose = 'login')
     {
         $this->otp = $otp;
         $this->userName = $userName ?: 'User';
+        $this->purpose = $purpose;
     }
 
     public function envelope(): Envelope
     {
+        $subject = match ($this->purpose) {
+            'signup' => 'GST REPOTIS - Verify Your Email',
+            'login' => 'GST REPOTIS Login Verification Code',
+            'password_reset' => 'GST REPOTIS - Password Reset Code',
+            default => 'GST REPOTIS Verification Code',
+        };
+
         return new Envelope(
-            subject: 'GST REPOTIS Login Verification Code',
+            subject: $subject,
         );
     }
 
@@ -42,13 +51,29 @@ class OtpVerificationMail extends Mailable
         $safeOtp = htmlspecialchars($this->otp, ENT_QUOTES, 'UTF-8');
         $year = date('Y');
 
+        $actionTitle = match ($this->purpose) {
+            'signup' => 'Email Verification',
+            'login' => 'Login Verification',
+            'password_reset' => 'Password Reset',
+            default => 'Account Verification',
+        };
+
+        $actionText = match ($this->purpose) {
+            'signup' => 'Thank you for signing up with GST REPOTIS. Use the verification code below to verify your email address and activate your account:',
+            'login' => 'Your GST REPOTIS login verification code is:',
+            'password_reset' => 'You requested a password reset for your GST REPOTIS account. Use the code below to reset your password:',
+            default => 'Your GST REPOTIS verification code is:',
+        };
+
+        $expiryText = ($this->purpose === 'password_reset') ? '10 minutes' : '5 minutes';
+
         return "
         <!DOCTYPE html>
         <html lang='en'>
         <head>
             <meta charset='utf-8'>
             <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-            <title>GST REPOTIS Login Verification Code</title>
+            <title>GST REPOTIS {$actionTitle}</title>
             <style>
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -153,7 +178,7 @@ class OtpVerificationMail extends Mailable
 
                 <div class='greeting'>Hello {$safeName},</div>
 
-                <div class='text'>Your GST REPOTIS login verification code is:</div>
+                <div class='text'>{$actionText}</div>
 
                 <div class='otp-card'>
                     <div class='otp-label'>Verification Code</div>
@@ -161,13 +186,13 @@ class OtpVerificationMail extends Mailable
                 </div>
 
                 <div class='notice'>
-                    This code expires in <strong>5 minutes</strong>.<br/>
-                    If you did not attempt to sign in, you can ignore this email.
+                    This code expires in <strong>{$expiryText}</strong>.<br/>
+                    If you did not request this code, please ignore this email or contact support.
                 </div>
 
                 <div class='signoff'>
                     Regards,<br/>
-                    <strong>GST REPOTIS</strong>
+                    <strong>GST REPOTIS Team</strong>
                 </div>
 
                 <div class='footer'>

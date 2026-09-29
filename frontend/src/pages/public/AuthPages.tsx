@@ -17,6 +17,9 @@ import {
 } from 'lucide-react';
 import {
   signup,
+  verifySignup,
+  resendSignupEmailOtp,
+  resendSignupMobileOtp,
   loginWithCredentials,
   verifyLoginOtp,
   resendLoginOtp,
@@ -25,8 +28,102 @@ import {
 } from '../../services/authService';
 import { parse10DigitIndianMobile } from '../../utils/phone';
 
+/**
+ * Format seconds into mm:ss format (e.g. 59 -> "00:59")
+ */
+function formatCooldown(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  const mStr = mins < 10 ? `0${mins}` : `${mins}`;
+  const sStr = secs < 10 ? `0${secs}` : `${secs}`;
+  return `${mStr}:${sStr}`;
+}
+
+/**
+ * Reusable 6-digit OTP Box Input Component
+ */
+interface OtpBoxProps {
+  digits: string[];
+  onChange: (newDigits: string[]) => void;
+  disabled?: boolean;
+  autoFocusFirst?: boolean;
+  idPrefix: string;
+}
+
+const OtpBoxGroup: React.FC<OtpBoxProps> = ({
+  digits,
+  onChange,
+  disabled = false,
+  autoFocusFirst = false,
+  idPrefix,
+}) => {
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    if (autoFocusFirst) {
+      inputRefs.current[0]?.focus();
+    }
+  }, [autoFocusFirst]);
+
+  const handleChange = (index: number, val: string) => {
+    const cleanValue = val.replace(/\D/g, '').slice(-1);
+    const updated = [...digits];
+    updated[index] = cleanValue;
+    onChange(updated);
+
+    if (cleanValue && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !digits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pastedData) return;
+
+    const updated = [...digits];
+    for (let i = 0; i < 6; i++) {
+      updated[i] = pastedData[i] || '';
+    }
+    onChange(updated);
+
+    const nextIndex = Math.min(pastedData.length, 5);
+    inputRefs.current[nextIndex]?.focus();
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-2 sm:gap-2.5" onPaste={handlePaste}>
+      {digits.map((digit, idx) => (
+        <input
+          key={idx}
+          id={`${idPrefix}-${idx}`}
+          ref={(el) => {
+            inputRefs.current[idx] = el;
+          }}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={1}
+          value={digit}
+          onChange={(e) => handleChange(idx, e.target.value)}
+          onKeyDown={(e) => handleKeyDown(idx, e)}
+          disabled={disabled}
+          autoComplete="one-time-code"
+          className="w-11 sm:w-12 h-12 sm:h-13 text-center text-xl font-bold font-mono bg-white border border-[#CBD5E1] rounded-xl text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-[#0F172A]/20 transition-all shadow-sm"
+        />
+      ))}
+    </div>
+  );
+};
+
 /* ====================================================================
-   SIGN IN PAGE (EMAIL / MOBILE + PASSWORD -> MANDATORY EMAIL OTP)
+   SIGN IN PAGE (EMAIL / MOBILE + PASSWORD -> TARGETED CHANNEL OTP)
    ==================================================================== */
 export const SignInPage: React.FC = () => {
   const navigate = useNavigate();
@@ -39,17 +136,16 @@ export const SignInPage: React.FC = () => {
   // Step 2 OTP states
   const [isOtpStep, setIsOtpStep] = useState(false);
   const [challengeId, setChallengeId] = useState('');
-  const [maskedEmail, setMaskedEmail] = useState('');
+  const [channel, setChannel] = useState<'email' | 'sms'>('email');
+  const [destinationMasked, setDestinationMasked] = useState('');
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
-  const [cooldown, setCooldown] = useState(30);
+  const [cooldown, setCooldown] = useState(60);
   const [resending, setResending] = useState(false);
 
   // Status & errors
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successNotice, setSuccessNotice] = useState('');
-
-  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -59,12 +155,44 @@ export const SignInPage: React.FC = () => {
     }
   }, [navigate]);
 
+  // Restore active login challenge on refresh if present
+  useEffect(() => {
+    try {
+      const savedChallenge = sessionStorage.getItem('gst_login_challenge');
+      if (savedChallenge) {
+        const parsed = JSON.parse(savedChallenge);
+        if (parsed.challenge_id) {
+          setChallengeId(parsed.challenge_id);
+          setChannel(parsed.channel || 'email');
+          setDestinationMasked(parsed.destination_masked || '');
+          setCooldown(parsed.cooldown || 60);
+          setIsOtpStep(true);
+        }
+      }
+    } catch {
+      sessionStorage.removeItem('gst_login_challenge');
+    }
+  }, []);
+
   // Cooldown countdown timer for resend OTP
   useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
     if (isOtpStep && cooldown > 0) {
       timer = setInterval(() => {
-        setCooldown((prev) => prev - 1);
+        setCooldown((prev) => {
+          const next = prev - 1;
+          try {
+            const saved = sessionStorage.getItem('gst_login_challenge');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              parsed.cooldown = next;
+              sessionStorage.setItem('gst_login_challenge', JSON.stringify(parsed));
+            }
+          } catch {
+            // ignore
+          }
+          return next;
+        });
       }, 1000);
     }
     return () => {
@@ -72,7 +200,7 @@ export const SignInPage: React.FC = () => {
     };
   }, [isOtpStep, cooldown]);
 
-  // Step 1 Submit: Validate credentials & request Email OTP
+  // Step 1 Submit: Validate credentials & request targeted OTP
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!login.trim() || !password || isLoading) return;
@@ -90,16 +218,25 @@ export const SignInPage: React.FC = () => {
       setIsLoading(false);
 
       if (res.requires_otp && res.challenge_id) {
+        const selectedChannel = res.channel || (login.includes('@') ? 'email' : 'sms');
+        const masked = res.destination_masked || res.email_masked || 'your registered contact';
+
         setChallengeId(res.challenge_id);
-        setMaskedEmail(res.email_masked || 'your registered email');
-        setCooldown(res.cooldown_seconds || 30);
+        setChannel(selectedChannel);
+        setDestinationMasked(masked);
+        setCooldown(res.cooldown_seconds || 60);
         setIsOtpStep(true);
         setOtpDigits(['', '', '', '', '', '']);
 
-        // Focus first OTP input
-        setTimeout(() => {
-          otpInputRefs.current[0]?.focus();
-        }, 150);
+        sessionStorage.setItem(
+          'gst_login_challenge',
+          JSON.stringify({
+            challenge_id: res.challenge_id,
+            channel: selectedChannel,
+            destination_masked: masked,
+            cooldown: res.cooldown_seconds || 60,
+          })
+        );
       }
     } catch (err: any) {
       setIsLoading(false);
@@ -114,43 +251,7 @@ export const SignInPage: React.FC = () => {
     }
   };
 
-  // OTP Input handlers
-  const handleOtpChange = (index: number, value: string) => {
-    const cleanValue = value.replace(/\D/g, '').slice(-1);
-    const newDigits = [...otpDigits];
-    newDigits[index] = cleanValue;
-    setOtpDigits(newDigits);
-
-    if (error) setError('');
-
-    // Auto-advance to next input
-    if (cleanValue && index < 5) {
-      otpInputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      otpInputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!pastedData) return;
-
-    const newDigits = [...otpDigits];
-    for (let i = 0; i < 6; i++) {
-      newDigits[i] = pastedData[i] || '';
-    }
-    setOtpDigits(newDigits);
-
-    const nextIndex = Math.min(pastedData.length, 5);
-    otpInputRefs.current[nextIndex]?.focus();
-  };
-
-  // Step 2 Submit: Verify 6-digit Email OTP & Complete Login
+  // Step 2 Submit: Verify 6-digit OTP & Complete Login
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const fullOtp = otpDigits.join('');
@@ -165,6 +266,7 @@ export const SignInPage: React.FC = () => {
         otp: fullOtp,
       });
 
+      sessionStorage.removeItem('gst_login_challenge');
       setIsLoading(false);
       navigate('/welcome', { replace: true });
     } catch (err: any) {
@@ -174,12 +276,12 @@ export const SignInPage: React.FC = () => {
         err?.response?.data?.message ||
         err?.response?.data?.errors?.otp?.[0] ||
         err?.message ||
-        'Invalid verification code.';
+        'Invalid OTP. Please check and try again.';
       setError(msg);
     }
   };
 
-  // Resend Email OTP
+  // Resend Login OTP
   const handleResendOtp = async () => {
     if (cooldown > 0 || resending || isLoading) return;
 
@@ -191,19 +293,31 @@ export const SignInPage: React.FC = () => {
         challenge_id: challengeId,
       });
       setResending(false);
-      setCooldown(res.cooldown_seconds || 30);
-      setSuccessNotice('A new verification code has been sent to your email.');
+      const newCooldown = res.cooldown_seconds || 60;
+      setCooldown(newCooldown);
+      setSuccessNotice(
+        channel === 'email'
+          ? 'A new verification code has been sent to your registered email.'
+          : 'A new verification code has been sent to your registered mobile number.'
+      );
       setOtpDigits(['', '', '', '', '', '']);
-      otpInputRefs.current[0]?.focus();
     } catch (err: any) {
       setResending(false);
       console.error('Resend OTP error:', err);
       const msg =
         err?.response?.data?.message ||
         err?.message ||
-        'Unable to send verification code. Please try again.';
+        'Please wait before requesting another OTP.';
       setError(msg);
     }
+  };
+
+  const handleBackToLogin = () => {
+    sessionStorage.removeItem('gst_login_challenge');
+    setIsOtpStep(false);
+    setChallengeId('');
+    setError('');
+    setSuccessNotice('');
   };
 
   return (
@@ -217,11 +331,13 @@ export const SignInPage: React.FC = () => {
             className="h-10 w-auto object-contain mx-auto mb-3.5"
           />
           <h2 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
-            {isOtpStep ? 'Verify Your Email' : 'Sign In'}
+            {isOtpStep ? 'Verify Login' : 'Sign In'}
           </h2>
           <p className="text-xs text-[#64748B] mt-1.5 font-medium">
             {isOtpStep
-              ? 'Enter the 6-digit verification code sent to your registered email'
+              ? channel === 'email'
+                ? "We've sent a 6-digit OTP to your registered email."
+                : "We've sent a 6-digit OTP to your registered mobile number."
               : 'Access your Bank Statement Converter & GSTR-1 filings'}
           </p>
         </div>
@@ -337,20 +453,20 @@ export const SignInPage: React.FC = () => {
             </p>
           </form>
         ) : (
-          /* STEP 2: EMAIL OTP VERIFICATION SCREEN */
+          /* STEP 2: TARGETED LOGIN OTP VERIFICATION SCREEN */
           <form onSubmit={handleVerifyOtp} className="space-y-5">
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-1">
-              <p className="text-xs text-slate-600">We sent a 6-digit verification code to:</p>
+              <p className="text-xs text-slate-600">
+                {channel === 'email'
+                  ? "We've sent a 6-digit OTP to your registered email:"
+                  : "We've sent a 6-digit OTP to your registered mobile number:"}
+              </p>
               <p className="text-base font-black text-[#0F172A] font-mono tracking-wider">
-                {maskedEmail}
+                {destinationMasked}
               </p>
               <button
                 type="button"
-                onClick={() => {
-                  setIsOtpStep(false);
-                  setError('');
-                  setSuccessNotice('');
-                }}
+                onClick={handleBackToLogin}
                 className="text-[11px] font-bold text-[#0F172A] hover:underline inline-flex items-center gap-1 mt-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-3 h-3" /> Change login credentials
@@ -358,28 +474,24 @@ export const SignInPage: React.FC = () => {
             </div>
 
             {/* 6 OTP Input Boxes */}
-            <div className="flex items-center justify-between gap-2 sm:gap-2.5" onPaste={handleOtpPaste}>
-              {otpDigits.map((digit, idx) => (
-                <input
-                  key={idx}
-                  ref={(el) => {
-                    otpInputRefs.current[idx] = el;
-                  }}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(e) => handleOtpChange(idx, e.target.value)}
-                  onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                  disabled={isLoading}
-                  className="w-12 h-13 text-center text-xl font-bold font-mono bg-white border border-[#CBD5E1] rounded-xl text-slate-900 focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-[#0F172A]/20 transition-all"
-                />
-              ))}
+            <div>
+              <label className="block text-xs font-bold text-[#1E293B] mb-2 text-center">
+                Enter 6-Digit Verification Code
+              </label>
+              <OtpBoxGroup
+                digits={otpDigits}
+                onChange={(d) => {
+                  setOtpDigits(d);
+                  if (error) setError('');
+                }}
+                disabled={isLoading}
+                autoFocusFirst={true}
+                idPrefix="login-otp"
+              />
             </div>
 
             {/* Verify & Login Button */}
-            <div className="pt-2">
+            <div className="pt-1">
               <button
                 type="submit"
                 disabled={isLoading || otpDigits.join('').length !== 6}
@@ -391,7 +503,7 @@ export const SignInPage: React.FC = () => {
                     <span>Verifying Code & Logging In...</span>
                   </>
                 ) : (
-                  <span>Verify & Login</span>
+                  <span>Verify OTP</span>
                 )}
               </button>
             </div>
@@ -401,7 +513,7 @@ export const SignInPage: React.FC = () => {
               Didn't receive code?{' '}
               {cooldown > 0 ? (
                 <span className="font-mono font-bold text-slate-800">
-                  Resend OTP in {cooldown}s
+                  Resend OTP in {formatCooldown(cooldown)}
                 </span>
               ) : (
                 <button
@@ -432,7 +544,7 @@ export const SignInPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <span>Two-factor protected with 6-digit Email OTP authentication</span>
+            <span>Secure Two-Factor OTP authentication</span>
           </div>
         </div>
 
@@ -453,13 +565,12 @@ export const SignInPage: React.FC = () => {
 };
 
 /* ====================================================================
-   SIGN UP PAGE (OPTION 1: FULL NAME, MOBILE, EMAIL, CREATE/CONFIRM PASSWORD)
-   NO OTP DURING SIGNUP. DIRECT REGISTRATION.
+   SIGN UP PAGE (DUAL OTP VERIFICATION: EMAIL OTP + MOBILE OTP)
    ==================================================================== */
 export const SignUpPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Form states
+  // Step 1 Form states
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
@@ -467,6 +578,20 @@ export const SignUpPage: React.FC = () => {
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Step 2 Verification states
+  const [isOtpStep, setIsOtpStep] = useState(false);
+  const [signupToken, setSignupToken] = useState('');
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [maskedMobile, setMaskedMobile] = useState('');
+
+  const [emailOtpDigits, setEmailOtpDigits] = useState(['', '', '', '', '', '']);
+  const [mobileOtpDigits, setMobileOtpDigits] = useState(['', '', '', '', '', '']);
+
+  const [emailCooldown, setEmailCooldown] = useState(60);
+  const [mobileCooldown, setMobileCooldown] = useState(60);
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [resendingMobile, setResendingMobile] = useState(false);
 
   // Interaction tracking
   const [touched, setTouched] = useState({
@@ -479,6 +604,7 @@ export const SignUpPage: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successNotice, setSuccessNotice] = useState('');
 
   // Redirect if already logged in
   useEffect(() => {
@@ -487,6 +613,40 @@ export const SignUpPage: React.FC = () => {
       navigate('/welcome', { replace: true });
     }
   }, [navigate]);
+
+  // Restore active signup challenge on refresh if present
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('gst_signup_challenge');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.signup_token) {
+          setSignupToken(parsed.signup_token);
+          setMaskedEmail(parsed.email_masked || '');
+          setMaskedMobile(parsed.mobile_masked || '');
+          setEmailCooldown(parsed.email_cooldown || 60);
+          setMobileCooldown(parsed.mobile_cooldown || 60);
+          setIsOtpStep(true);
+        }
+      }
+    } catch {
+      sessionStorage.removeItem('gst_signup_challenge');
+    }
+  }, []);
+
+  // Cooldown countdown timers for Email & Mobile resend
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    if (isOtpStep && (emailCooldown > 0 || mobileCooldown > 0)) {
+      timer = setInterval(() => {
+        setEmailCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+        setMobileCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isOtpStep, emailCooldown, mobileCooldown]);
 
   // Validations
   const trimmedName = name.trim();
@@ -500,7 +660,7 @@ export const SignUpPage: React.FC = () => {
   const isFormValid =
     isNameValid && isMobileValid && isEmailValid && isPasswordValid && isConfirmValid;
 
-  // Submit direct signup form
+  // Step 1: Submit signup form & request Dual OTPs
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({
@@ -514,10 +674,11 @@ export const SignUpPage: React.FC = () => {
     if (!isFormValid || isLoading) return;
 
     setError('');
+    setSuccessNotice('');
     setIsLoading(true);
 
     try {
-      await signup({
+      const res = await signup({
         name: trimmedName,
         email: email.trim().toLowerCase(),
         mobile: mobileParsed.canonical,
@@ -526,7 +687,28 @@ export const SignUpPage: React.FC = () => {
       });
 
       setIsLoading(false);
-      navigate('/welcome', { replace: true });
+
+      if (res.requires_verification && res.signup_token) {
+        setSignupToken(res.signup_token);
+        setMaskedEmail(res.email_masked || email.trim().toLowerCase());
+        setMaskedMobile(res.mobile_masked || mobileParsed.canonical);
+        setEmailCooldown(res.cooldown_seconds || 60);
+        setMobileCooldown(res.cooldown_seconds || 60);
+        setIsOtpStep(true);
+        setEmailOtpDigits(['', '', '', '', '', '']);
+        setMobileOtpDigits(['', '', '', '', '', '']);
+
+        sessionStorage.setItem(
+          'gst_signup_challenge',
+          JSON.stringify({
+            signup_token: res.signup_token,
+            email_masked: res.email_masked,
+            mobile_masked: res.mobile_masked,
+            email_cooldown: res.cooldown_seconds || 60,
+            mobile_cooldown: res.cooldown_seconds || 60,
+          })
+        );
+      }
     } catch (err: any) {
       setIsLoading(false);
       console.error('Signup error:', err);
@@ -542,6 +724,92 @@ export const SignUpPage: React.FC = () => {
     }
   };
 
+  // Step 2: Verify Dual OTPs & Activate Account
+  const handleVerifyDualOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const fullEmailOtp = emailOtpDigits.join('');
+    const fullMobileOtp = mobileOtpDigits.join('');
+
+    if (fullEmailOtp.length !== 6 || fullMobileOtp.length !== 6 || isLoading) {
+      setError('Please enter both 6-digit verification codes (Email and Mobile).');
+      return;
+    }
+
+    setError('');
+    setSuccessNotice('');
+    setIsLoading(true);
+
+    try {
+      await verifySignup({
+        signup_token: signupToken,
+        email_otp: fullEmailOtp,
+        mobile_otp: fullMobileOtp,
+      });
+
+      sessionStorage.removeItem('gst_signup_challenge');
+      setIsLoading(false);
+      navigate('/welcome', { replace: true });
+    } catch (err: any) {
+      setIsLoading(false);
+      console.error('Dual OTP verification error:', err);
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.errors?.email_otp?.[0] ||
+        err?.response?.data?.errors?.mobile_otp?.[0] ||
+        err?.message ||
+        'Invalid verification code. Please check and try again.';
+      setError(msg);
+    }
+  };
+
+  // Resend Email OTP
+  const handleResendEmailOtp = async () => {
+    if (emailCooldown > 0 || resendingEmail || isLoading) return;
+
+    setError('');
+    setResendingEmail(true);
+
+    try {
+      const res = await resendSignupEmailOtp({ signup_token: signupToken });
+      setResendingEmail(false);
+      setEmailCooldown(res.cooldown_seconds || 60);
+      setSuccessNotice('A new verification code has been sent to your email.');
+      setEmailOtpDigits(['', '', '', '', '', '']);
+    } catch (err: any) {
+      setResendingEmail(false);
+      console.error('Resend email OTP error:', err);
+      setError(err?.response?.data?.message || err?.message || 'Please wait before requesting another OTP.');
+    }
+  };
+
+  // Resend Mobile OTP
+  const handleResendMobileOtp = async () => {
+    if (mobileCooldown > 0 || resendingMobile || isLoading) return;
+
+    setError('');
+    setResendingMobile(true);
+
+    try {
+      const res = await resendSignupMobileOtp({ signup_token: signupToken });
+      setResendingMobile(false);
+      setMobileCooldown(res.cooldown_seconds || 60);
+      setSuccessNotice('A new verification code has been sent to your mobile number.');
+      setMobileOtpDigits(['', '', '', '', '', '']);
+    } catch (err: any) {
+      setResendingMobile(false);
+      console.error('Resend mobile OTP error:', err);
+      setError(err?.response?.data?.message || err?.message || 'Please wait before requesting another OTP.');
+    }
+  };
+
+  const handleBackToSignup = () => {
+    sessionStorage.removeItem('gst_signup_challenge');
+    setIsOtpStep(false);
+    setSignupToken('');
+    setError('');
+    setSuccessNotice('');
+  };
+
   return (
     <div className="bg-[#F8F9FA] min-h-[82vh] flex items-center justify-center py-16 px-4">
       <Card className="w-full max-w-md p-8 bg-white shadow-xl border border-[#E5E7EB] rounded-2xl">
@@ -553,10 +821,12 @@ export const SignUpPage: React.FC = () => {
             className="h-10 w-auto object-contain mx-auto mb-3.5"
           />
           <h2 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
-            Sign Up
+            {isOtpStep ? 'Verify Your Account' : 'Sign Up'}
           </h2>
           <p className="text-xs text-[#64748B] mt-1.5 font-medium">
-            Create your account and start your automated GST workflows
+            {isOtpStep
+              ? 'Please verify both your email and mobile number to activate your account'
+              : 'Create your account and start your automated GST workflows'}
           </p>
         </div>
 
@@ -568,229 +838,376 @@ export const SignUpPage: React.FC = () => {
           </div>
         )}
 
-        {/* SIGNUP FORM (OPTION 1) */}
-        <form onSubmit={handleSignUpSubmit} className="space-y-4">
-          {/* Full Name Field */}
-          <div>
-            <label htmlFor="signup-name" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-              Full Name <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <UserIcon className="w-4 h-4" />
+        {/* Success Notice */}
+        {successNotice && (
+          <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 rounded-xl mb-5 flex items-start gap-2.5 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+            <p className="flex-1 leading-relaxed">{successNotice}</p>
+          </div>
+        )}
+
+        {/* STEP 1: SIGNUP FORM */}
+        {!isOtpStep ? (
+          <form onSubmit={handleSignUpSubmit} className="space-y-4">
+            {/* Full Name Field */}
+            <div>
+              <label htmlFor="signup-name" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                Full Name <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <UserIcon className="w-4 h-4" />
+                </div>
+                <input
+                  id="signup-name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched({ ...touched, name: true })}
+                  placeholder="Enter your full name"
+                  required
+                  disabled={isLoading}
+                  className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
+                    touched.name && !isNameValid
+                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                />
               </div>
-              <input
-                id="signup-name"
-                type="text"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (error) setError('');
-                }}
-                onBlur={() => setTouched({ ...touched, name: true })}
-                placeholder="Enter your full name"
-                required
-                disabled={isLoading}
-                className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
-                  touched.name && !isNameValid
-                    ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                    : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-              />
-            </div>
-            {touched.name && !isNameValid && (
-              <p className="text-[11px] text-red-600 mt-1 font-medium">
-                {trimmedName.length === 0
-                  ? 'Please enter your full name.'
-                  : 'Name must be between 2 and 100 characters.'}
-              </p>
-            )}
-          </div>
-
-          {/* Mobile Number Field */}
-          <div>
-            <label htmlFor="signup-mobile" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-              Mobile Number <span className="text-red-500">*</span>
-            </label>
-            <div className="relative flex rounded-xl shadow-sm">
-              <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#CBD5E1] bg-[#F8FAFC] text-slate-700 text-xs font-bold font-mono">
-                <Phone className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                +91
-              </span>
-              <input
-                id="signup-mobile"
-                type="tel"
-                maxLength={10}
-                value={mobile}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                  setMobile(cleaned);
-                  if (error) setError('');
-                }}
-                onBlur={() => setTouched({ ...touched, mobile: true })}
-                placeholder="Enter 10-digit mobile number"
-                required
-                disabled={isLoading}
-                className={`flex-1 min-w-0 block w-full px-3.5 py-2.5 text-sm bg-white border ${
-                  touched.mobile && !isMobileValid
-                    ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                    : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                } rounded-r-xl placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors font-mono`}
-              />
-            </div>
-            {touched.mobile && !isMobileValid && (
-              <p className="text-[11px] text-red-600 mt-1 font-medium">
-                Please enter a valid 10-digit Indian mobile number (starts with 6, 7, 8, or 9).
-              </p>
-            )}
-          </div>
-
-          {/* Email ID Field */}
-          <div>
-            <label htmlFor="signup-email" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-              Email ID <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Mail className="w-4 h-4" />
-              </div>
-              <input
-                id="signup-email"
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (error) setError('');
-                }}
-                onBlur={() => setTouched({ ...touched, email: true })}
-                placeholder="Enter your email address"
-                required
-                disabled={isLoading}
-                className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
-                  touched.email && !isEmailValid
-                    ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                    : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-              />
-            </div>
-            {touched.email && !isEmailValid && (
-              <p className="text-[11px] text-red-600 mt-1 font-medium">
-                Please enter a valid email address.
-              </p>
-            )}
-          </div>
-
-          {/* Create Password Field */}
-          <div>
-            <label htmlFor="signup-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-              Create Password <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Lock className="w-4 h-4" />
-              </div>
-              <input
-                id="signup-password"
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  if (error) setError('');
-                }}
-                onBlur={() => setTouched({ ...touched, password: true })}
-                placeholder="Enter password (min. 8 characters)"
-                required
-                disabled={isLoading}
-                className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
-                  touched.password && !isPasswordValid
-                    ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                    : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            {touched.password && !isPasswordValid && (
-              <p className="text-[11px] text-red-600 mt-1 font-medium">
-                Password must be at least 8 characters.
-              </p>
-            )}
-          </div>
-
-          {/* Confirm Password Field */}
-          <div>
-            <label htmlFor="signup-confirm-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-              Confirm Password <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                <Lock className="w-4 h-4" />
-              </div>
-              <input
-                id="signup-confirm-password"
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={passwordConfirmation}
-                onChange={(e) => {
-                  setPasswordConfirmation(e.target.value);
-                  if (error) setError('');
-                }}
-                onBlur={() => setTouched({ ...touched, confirm: true })}
-                placeholder="Confirm your password"
-                required
-                disabled={isLoading}
-                className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
-                  touched.confirm && !isConfirmValid
-                    ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                    : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
-                tabIndex={-1}
-              >
-                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            {touched.confirm && !isConfirmValid && (
-              <p className="text-[11px] text-red-600 mt-1 font-medium">
-                Passwords do not match.
-              </p>
-            )}
-          </div>
-
-          {/* Sign Up Button */}
-          <div className="pt-2">
-            <button
-              type="submit"
-              disabled={isLoading || !isFormValid}
-              className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Creating Account...</span>
-                </>
-              ) : (
-                <span>Sign Up</span>
+              {touched.name && !isNameValid && (
+                <p className="text-[11px] text-red-600 mt-1 font-medium">
+                  {trimmedName.length === 0
+                    ? 'Please enter your full name.'
+                    : 'Name must be between 2 and 100 characters.'}
+                </p>
               )}
-            </button>
-          </div>
+            </div>
 
-          <p className="text-xs text-slate-600 text-center pt-2">
-            Already have an account?{' '}
-            <Link to="/sign-in" className="font-extrabold text-[#0F172A] hover:underline uppercase tracking-wide">
-              LOGIN
-            </Link>
-          </p>
-        </form>
+            {/* Mobile Number Field */}
+            <div>
+              <label htmlFor="signup-mobile" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                Mobile Number <span className="text-red-500">*</span>
+              </label>
+              <div className="relative flex rounded-xl shadow-sm">
+                <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#CBD5E1] bg-[#F8FAFC] text-slate-700 text-xs font-bold font-mono">
+                  <Phone className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                  +91
+                </span>
+                <input
+                  id="signup-mobile"
+                  type="tel"
+                  maxLength={10}
+                  value={mobile}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setMobile(cleaned);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched({ ...touched, mobile: true })}
+                  placeholder="Enter 10-digit mobile number"
+                  required
+                  disabled={isLoading}
+                  className={`flex-1 min-w-0 block w-full px-3.5 py-2.5 text-sm bg-white border ${
+                    touched.mobile && !isMobileValid
+                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                  } rounded-r-xl placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors font-mono`}
+                />
+              </div>
+              {touched.mobile && !isMobileValid && (
+                <p className="text-[11px] text-red-600 mt-1 font-medium">
+                  Please enter a valid 10-digit Indian mobile number (starts with 6, 7, 8, or 9).
+                </p>
+              )}
+            </div>
+
+            {/* Email ID Field */}
+            <div>
+              <label htmlFor="signup-email" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                Email ID <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Mail className="w-4 h-4" />
+                </div>
+                <input
+                  id="signup-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched({ ...touched, email: true })}
+                  placeholder="Enter your email address"
+                  required
+                  disabled={isLoading}
+                  className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
+                    touched.email && !isEmailValid
+                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                />
+              </div>
+              {touched.email && !isEmailValid && (
+                <p className="text-[11px] text-red-600 mt-1 font-medium">
+                  Please enter a valid email address.
+                </p>
+              )}
+            </div>
+
+            {/* Create Password Field */}
+            <div>
+              <label htmlFor="signup-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                Create Password <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  id="signup-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched({ ...touched, password: true })}
+                  placeholder="Enter password (min. 8 characters)"
+                  required
+                  disabled={isLoading}
+                  className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
+                    touched.password && !isPasswordValid
+                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {touched.password && !isPasswordValid && (
+                <p className="text-[11px] text-red-600 mt-1 font-medium">
+                  Password must be at least 8 characters.
+                </p>
+              )}
+            </div>
+
+            {/* Confirm Password Field */}
+            <div>
+              <label htmlFor="signup-confirm-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                Confirm Password <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  id="signup-confirm-password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={passwordConfirmation}
+                  onChange={(e) => {
+                    setPasswordConfirmation(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched({ ...touched, confirm: true })}
+                  placeholder="Confirm your password"
+                  required
+                  disabled={isLoading}
+                  className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
+                    touched.confirm && !isConfirmValid
+                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {touched.confirm && !isConfirmValid && (
+                <p className="text-[11px] text-red-600 mt-1 font-medium">
+                  Passwords do not match.
+                </p>
+              )}
+            </div>
+
+            {/* Sign Up Button */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={isLoading || !isFormValid}
+                className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Sending Verification Codes...</span>
+                  </>
+                ) : (
+                  <span>Sign Up</span>
+                )}
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 text-center pt-2">
+              Already have an account?{' '}
+              <Link to="/sign-in" className="font-extrabold text-[#0F172A] hover:underline uppercase tracking-wide">
+                LOGIN
+              </Link>
+            </p>
+          </form>
+        ) : (
+          /* STEP 2: DUAL OTP VERIFICATION SCREEN */
+          <form onSubmit={handleVerifyDualOtp} className="space-y-6">
+            {/* Status overview banner */}
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs text-slate-700">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  Email OTP sent to <strong className="font-mono text-slate-900">{maskedEmail}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  Mobile OTP sent to <strong className="font-mono text-slate-900">{maskedMobile}</strong>
+                </span>
+              </div>
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={handleBackToSignup}
+                  className="text-[11px] font-bold text-[#0F172A] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3 h-3" /> Change registration details
+                </button>
+              </div>
+            </div>
+
+            {/* 1. EMAIL VERIFICATION SECTION */}
+            <div className="space-y-2.5 p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-black text-[#0F172A] uppercase tracking-wide">
+                    Email Verification
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    We've sent a 6-digit OTP to your email.
+                  </p>
+                </div>
+                <Mail className="w-4 h-4 text-slate-400" />
+              </div>
+
+              <OtpBoxGroup
+                digits={emailOtpDigits}
+                onChange={(d) => {
+                  setEmailOtpDigits(d);
+                  if (error) setError('');
+                }}
+                disabled={isLoading}
+                autoFocusFirst={true}
+                idPrefix="email-otp"
+              />
+
+              <div className="flex items-center justify-end text-[11px] text-slate-600 pt-0.5">
+                {emailCooldown > 0 ? (
+                  <span className="font-mono font-bold text-slate-700">
+                    Resend Email OTP in {formatCooldown(emailCooldown)}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendEmailOtp}
+                    disabled={resendingEmail || isLoading}
+                    className="font-extrabold text-[#0F172A] hover:underline cursor-pointer inline-flex items-center gap-1"
+                  >
+                    {resendingEmail && <RotateCw className="w-3 h-3 animate-spin" />}
+                    Resend Email OTP
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 2. MOBILE VERIFICATION SECTION */}
+            <div className="space-y-2.5 p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-black text-[#0F172A] uppercase tracking-wide">
+                    Mobile Verification
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    We've sent a 6-digit OTP to your mobile number.
+                  </p>
+                </div>
+                <Phone className="w-4 h-4 text-slate-400" />
+              </div>
+
+              <OtpBoxGroup
+                digits={mobileOtpDigits}
+                onChange={(d) => {
+                  setMobileOtpDigits(d);
+                  if (error) setError('');
+                }}
+                disabled={isLoading}
+                idPrefix="mobile-otp"
+              />
+
+              <div className="flex items-center justify-end text-[11px] text-slate-600 pt-0.5">
+                {mobileCooldown > 0 ? (
+                  <span className="font-mono font-bold text-slate-700">
+                    Resend Mobile OTP in {formatCooldown(mobileCooldown)}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendMobileOtp}
+                    disabled={resendingMobile || isLoading}
+                    className="font-extrabold text-[#0F172A] hover:underline cursor-pointer inline-flex items-center gap-1"
+                  >
+                    {resendingMobile && <RotateCw className="w-3 h-3 animate-spin" />}
+                    Resend Mobile OTP
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <div className="pt-1">
+              <button
+                type="submit"
+                disabled={
+                  isLoading ||
+                  emailOtpDigits.join('').length !== 6 ||
+                  mobileOtpDigits.join('').length !== 6
+                }
+                className="w-full py-3.5 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying & Creating Account...</span>
+                  </>
+                ) : (
+                  <span>Verify & Create Account</span>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
 
         {/* Terms footer */}
         <div className="mt-7 pt-4 border-t border-slate-200 text-center text-[11px] text-slate-500 leading-relaxed font-mono">
@@ -814,7 +1231,7 @@ export const SignUpPage: React.FC = () => {
 export const ForgotPasswordPage: React.FC = () => {
   const [login, setLogin] = useState('');
   const [isOtpSent, setIsOtpSent] = useState(false);
-  const [otp, setOtp] = useState('');
+  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -844,7 +1261,8 @@ export const ForgotPasswordPage: React.FC = () => {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!otp.trim() || newPassword.length < 8 || newPassword !== confirmPassword || isLoading) return;
+    const fullOtp = otpDigits.join('');
+    if (fullOtp.length !== 6 || newPassword.length < 8 || newPassword !== confirmPassword || isLoading) return;
 
     setError('');
     setIsLoading(true);
@@ -852,7 +1270,7 @@ export const ForgotPasswordPage: React.FC = () => {
     try {
       const res = await resetPasswordWithOtp({
         login: login.trim(),
-        otp: otp.trim(),
+        otp: fullOtp,
         password: newPassword,
         password_confirmation: confirmPassword,
       });
@@ -944,18 +1362,18 @@ export const ForgotPasswordPage: React.FC = () => {
         ) : (
           <form onSubmit={handleResetPassword} className="space-y-4">
             <div>
-              <label htmlFor="reset-otp" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+              <label className="block text-xs font-bold text-[#1E293B] mb-1.5">
                 6-Digit Verification Code <span className="text-red-500">*</span>
               </label>
-              <input
-                id="reset-otp"
-                type="text"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                placeholder="Enter 6-digit code"
-                required
-                className="w-full px-4 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-xl font-mono tracking-widest text-center text-lg font-bold"
+              <OtpBoxGroup
+                digits={otpDigits}
+                onChange={(d) => {
+                  setOtpDigits(d);
+                  if (error) setError('');
+                }}
+                disabled={isLoading}
+                autoFocusFirst={true}
+                idPrefix="reset-otp"
               />
             </div>
 
@@ -1000,7 +1418,7 @@ export const ForgotPasswordPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isLoading || otp.length !== 6 || newPassword.length < 8 || newPassword !== confirmPassword}
+              disabled={isLoading || otpDigits.join('').length !== 6 || newPassword.length < 8 || newPassword !== confirmPassword}
               className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {isLoading ? (

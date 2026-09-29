@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuthOtp;
 use App\Models\LoginOtpVerification;
 use App\Models\OtpVerification;
+use App\Models\PendingSignup;
 use App\Models\User;
 use App\Mail\OtpVerificationMail;
 use App\Services\FirebaseTokenVerifier;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -18,10 +21,12 @@ use Throwable;
 class AuthController extends Controller
 {
     protected FirebaseTokenVerifier $tokenVerifier;
+    protected SmsService $smsService;
 
-    public function __construct(FirebaseTokenVerifier $tokenVerifier)
+    public function __construct(FirebaseTokenVerifier $tokenVerifier, SmsService $smsService)
     {
         $this->tokenVerifier = $tokenVerifier;
+        $this->smsService = $smsService;
     }
 
     /**
@@ -68,13 +73,13 @@ class AuthController extends Controller
     }
 
     /**
-     * Mask email address (e.g., krushal@gmail.com -> k***@gmail.com)
+     * Mask email address (e.g., krushal@example.com -> k***@example.com)
      */
     public function maskEmail(string $email): string
     {
         $parts = explode('@', $email);
         $name = $parts[0] ?? 'user';
-        $domain = $parts[1] ?? 'gmail.com';
+        $domain = $parts[1] ?? 'example.com';
 
         if (strlen($name) <= 1) {
             $maskedName = $name . '***';
@@ -83,6 +88,16 @@ class AuthController extends Controller
         }
 
         return $maskedName . '@' . $domain;
+    }
+
+    /**
+     * Mask Indian mobile number (e.g., +919876543210 -> ******3210)
+     */
+    public function maskMobile(string $mobile): string
+    {
+        $cleanDigits = preg_replace('/\D/', '', $mobile);
+        $last4 = substr($cleanDigits, -4);
+        return '******' . $last4;
     }
 
     /**
@@ -112,8 +127,8 @@ class AuthController extends Controller
 
     /**
      * ====================================================================
-     * 1. SIGNUP FLOW (OPTION 1: Email + Password Direct Registration)
-     * POST /api/auth/register or POST /api/auth/signup
+     * 1. SIGNUP STEP 1: Full Name, Email, Mobile, Password -> Dual OTP Dispatch
+     * POST /api/auth/signup or POST /api/auth/register
      * ====================================================================
      */
     public function register(Request $request)
@@ -154,7 +169,7 @@ class AuthController extends Controller
         $normalizedEmail = $this->normalizeEmail($request->email);
         $normalizedMobile = $this->normalizeMobile($request->mobile);
 
-        // Duplicate checks against users table
+        // Duplicate checks against existing registered users
         if (User::where('email', $normalizedEmail)->exists()) {
             return response()->json([
                 'status' => 'error',
@@ -177,16 +192,201 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Hash password securely with Bcrypt
-        $passwordHash = Hash::make($request->password);
-        $token = bin2hex(random_bytes(32));
+        // Clean up previous unverified pending signups for this email or mobile
+        PendingSignup::where('email', $normalizedEmail)
+            ->orWhere('mobile', $normalizedMobile)
+            ->delete();
 
-        // Create user in MySQL
-        $user = User::create([
+        // Generate TWO distinct cryptographically secure 6-digit OTPs
+        $emailOtp = (string) random_int(100000, 999999);
+        do {
+            $mobileOtp = (string) random_int(100000, 999999);
+        } while ($mobileOtp === $emailOtp);
+
+        $emailOtpHash = hash('sha256', $emailOtp);
+        $mobileOtpHash = hash('sha256', $mobileOtp);
+        $passwordHash = Hash::make($request->password);
+        $signupToken = (string) Str::uuid();
+
+        // 1. Send Email OTP to submitted email address
+        try {
+            Mail::to($normalizedEmail)->send(new OtpVerificationMail($emailOtp, trim($request->name), 'signup'));
+        } catch (\Throwable $e) {
+            Log::error("SIGNUP_EMAIL_OTP_DISPATCH_FAILURE: " . $e->getMessage(), [
+                'email' => $normalizedEmail,
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => "We couldn't send the email OTP. Please try again.",
+            ], 500);
+        }
+
+        // 2. Send Mobile/SMS OTP to submitted mobile number
+        $smsSuccess = $this->smsService->sendOtp($normalizedMobile, $mobileOtp, 'signup');
+        if (!$smsSuccess) {
+            Log::error("SIGNUP_SMS_OTP_DISPATCH_FAILURE: Failed to dispatch SMS OTP to {$normalizedMobile}");
+
+            return response()->json([
+                'status' => 'error',
+                'message' => "We couldn't send the mobile OTP. Please try again.",
+            ], 500);
+        }
+
+        // Persist pending registration record
+        PendingSignup::create([
+            'signup_token' => $signupToken,
             'name' => trim($request->name),
             'email' => $normalizedEmail,
             'mobile' => $normalizedMobile,
-            'password' => $passwordHash,
+            'password_hash' => $passwordHash,
+            'email_otp_hash' => $emailOtpHash,
+            'mobile_otp_hash' => $mobileOtpHash,
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now(),
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'requires_verification' => true,
+            'signup_token' => $signupToken,
+            'email_masked' => $this->maskEmail($normalizedEmail),
+            'mobile_masked' => $this->maskMobile($normalizedMobile),
+            'expires_in_seconds' => 300,
+            'cooldown_seconds' => 60,
+            'message' => "Verification codes have been sent to your email and mobile number.",
+        ], 200);
+    }
+
+    /**
+     * ====================================================================
+     * 2. SIGNUP STEP 2: Verify Dual OTPs & Activate User Account
+     * POST /api/auth/signup/verify or POST /api/auth/register/verify
+     * ====================================================================
+     */
+    public function verifySignup(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'signup_token' => 'required|string',
+            'email_otp' => 'required|string|size:6',
+            'mobile_otp' => 'required|string|size:6',
+        ], [
+            'signup_token.required' => 'Registration session token is required.',
+            'email_otp.required' => 'Please enter the 6-digit email verification code.',
+            'email_otp.size' => 'Email verification code must be exactly 6 digits.',
+            'mobile_otp.required' => 'Please enter the 6-digit mobile verification code.',
+            'mobile_otp.size' => 'Mobile verification code must be exactly 6 digits.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $pending = PendingSignup::where('signup_token', $request->signup_token)->first();
+
+        if (!$pending) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration session expired or invalid. Please sign up again.',
+            ], 404);
+        }
+
+        // Check if max attempts reached
+        if ($pending->email_attempts >= $pending->max_attempts || $pending->mobile_attempts >= $pending->max_attempts) {
+            $pending->delete();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Too many incorrect attempts. Please request a new OTP.',
+            ], 422);
+        }
+
+        // Check expiry (5 minutes)
+        if ($pending->email_expires_at->isPast() && $pending->mobile_expires_at->isPast()) {
+            $pending->delete();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'This OTP has expired. Please request a new OTP.',
+            ], 422);
+        }
+
+        if ($pending->email_expires_at->isPast()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Email OTP has expired. Please request a new OTP.',
+            ], 422);
+        }
+
+        if ($pending->mobile_expires_at->isPast()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Mobile OTP has expired. Please request a new OTP.',
+            ], 422);
+        }
+
+        // Verify hashes
+        $emailOtpInput = trim($request->email_otp);
+        $mobileOtpInput = trim($request->mobile_otp);
+
+        $emailMatches = (hash('sha256', $emailOtpInput) === $pending->email_otp_hash);
+        $mobileMatches = (hash('sha256', $mobileOtpInput) === $pending->mobile_otp_hash);
+
+        // If either fails, do NOT activate account
+        if (!$emailMatches || !$mobileMatches) {
+            if (!$emailMatches) {
+                $pending->increment('email_attempts');
+            }
+            if (!$mobileMatches) {
+                $pending->increment('mobile_attempts');
+            }
+
+            if (!$emailMatches && !$mobileMatches) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid email and mobile verification codes. Please check and try again.',
+                ], 422);
+            }
+
+            if (!$emailMatches) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid email OTP. Please check and try again.',
+                ], 422);
+            }
+
+            if (!$mobileMatches) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid mobile OTP. Please check and try again.',
+                ], 422);
+            }
+        }
+
+        // Ensure email and mobile are still unique in users table
+        if (User::where('email', $pending->email)->exists() || User::where('mobile', $pending->mobile)->exists()) {
+            $pending->delete();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'An account with these details has already been created. Please login.',
+            ], 422);
+        }
+
+        // BOTH OTPs ARE VERIFIED -> Create active user account
+        $token = bin2hex(random_bytes(32));
+
+        $user = User::create([
+            'name' => $pending->name,
+            'email' => $pending->email,
+            'mobile' => $pending->mobile,
+            'password' => $pending->password_hash,
             'user_type' => 'CA',
             'role' => 'user',
             'is_admin' => 0,
@@ -199,9 +399,12 @@ class AuthController extends Controller
             'last_login_at' => now(),
         ]);
 
+        // Invalidate pending signup
+        $pending->delete();
+
         return response()->json([
             'status' => 'success',
-            'message' => 'Account created successfully.',
+            'message' => 'Account created and verified successfully.',
             'access_token' => $token,
             'token_type' => 'Bearer',
             'user' => $this->formatUser($user),
@@ -210,8 +413,141 @@ class AuthController extends Controller
 
     /**
      * ====================================================================
-     * 2. LOGIN STEP 1: Email / Mobile + Password -> EMAIL OTP DISPATCH
+     * 3. RESEND SIGNUP EMAIL OTP
+     * POST /api/auth/signup/resend-email-otp
+     * ====================================================================
+     */
+    public function resendSignupEmailOtp(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'signup_token' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration token is required.',
+            ], 422);
+        }
+
+        $pending = PendingSignup::where('signup_token', $request->signup_token)->first();
+
+        if (!$pending) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration session expired. Please sign up again.',
+            ], 404);
+        }
+
+        // 60-second cooldown enforcement
+        if ($pending->email_last_sent_at && $pending->email_last_sent_at->addSeconds(60)->isFuture()) {
+            $secondsRemaining = $pending->email_last_sent_at->addSeconds(60)->diffInSeconds(now());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Please wait before requesting another OTP.',
+                'cooldown_seconds' => $secondsRemaining,
+            ], 429);
+        }
+
+        $newEmailOtp = (string) random_int(100000, 999999);
+        $newOtpHash = hash('sha256', $newEmailOtp);
+
+        try {
+            Mail::to($pending->email)->send(new OtpVerificationMail($newEmailOtp, $pending->name, 'signup'));
+        } catch (\Throwable $e) {
+            Log::error("SIGNUP_EMAIL_OTP_RESEND_FAILURE: " . $e->getMessage(), ['email' => $pending->email]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => "We couldn't send the email OTP. Please try again.",
+            ], 500);
+        }
+
+        $pending->update([
+            'email_otp_hash' => $newOtpHash,
+            'email_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'email_last_sent_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'New verification code sent to your email.',
+            'cooldown_seconds' => 60,
+        ]);
+    }
+
+    /**
+     * ====================================================================
+     * 4. RESEND SIGNUP MOBILE OTP
+     * POST /api/auth/signup/resend-mobile-otp
+     * ====================================================================
+     */
+    public function resendSignupMobileOtp(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'signup_token' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration token is required.',
+            ], 422);
+        }
+
+        $pending = PendingSignup::where('signup_token', $request->signup_token)->first();
+
+        if (!$pending) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration session expired. Please sign up again.',
+            ], 404);
+        }
+
+        // 60-second cooldown enforcement
+        if ($pending->mobile_last_sent_at && $pending->mobile_last_sent_at->addSeconds(60)->isFuture()) {
+            $secondsRemaining = $pending->mobile_last_sent_at->addSeconds(60)->diffInSeconds(now());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Please wait before requesting another OTP.',
+                'cooldown_seconds' => $secondsRemaining,
+            ], 429);
+        }
+
+        $newMobileOtp = (string) random_int(100000, 999999);
+        $newOtpHash = hash('sha256', $newMobileOtp);
+
+        $sent = $this->smsService->sendOtp($pending->mobile, $newMobileOtp, 'signup');
+        if (!$sent) {
+            Log::error("SIGNUP_MOBILE_OTP_RESEND_FAILURE: Failed to dispatch SMS OTP to {$pending->mobile}");
+
+            return response()->json([
+                'status' => 'error',
+                'message' => "We couldn't send the mobile OTP. Please try again.",
+            ], 500);
+        }
+
+        $pending->update([
+            'mobile_otp_hash' => $newOtpHash,
+            'mobile_expires_at' => now()->addMinutes(5),
+            'mobile_attempts' => 0,
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'New verification code sent to your mobile number.',
+            'cooldown_seconds' => 60,
+        ]);
+    }
+
+    /**
+     * ====================================================================
+     * 5. LOGIN STEP 1: Email / Mobile + Password -> Targeted OTP Routing
      * POST /api/auth/login
+     * If user logs in with Email -> Send OTP ONLY to registered Email
+     * If user logs in with Mobile -> Send OTP ONLY to registered Mobile
      * ====================================================================
      */
     public function login(Request $request)
@@ -234,12 +570,15 @@ class AuthController extends Controller
 
         $loginInput = trim($request->login);
         $user = null;
+        $channel = 'email'; // 'email' or 'sms'
 
         // Determine whether input is Email or Mobile Number
         if (str_contains($loginInput, '@')) {
+            $channel = 'email';
             $normalizedEmail = $this->normalizeEmail($loginInput);
             $user = User::where('email', $normalizedEmail)->first();
         } else {
+            $channel = 'sms';
             $normalizedMobile = $this->normalizeMobile($loginInput);
             if ($normalizedMobile) {
                 $user = User::where('mobile', $normalizedMobile)
@@ -270,17 +609,35 @@ class AuthController extends Controller
         }
 
         // CRITICAL: DO NOT log the user in yet. Issue Pending OTP Challenge.
-        // Generate cryptographically secure 6-digit server-side OTP
         $otp = (string) random_int(100000, 999999);
         $otpHash = hash('sha256', $otp);
         $challengeId = (string) Str::uuid();
 
         // Invalidate previous unverified login challenges for this user
+        AuthOtp::where('user_id', $user->id)
+            ->where('purpose', 'login')
+            ->whereNull('verified_at')
+            ->delete();
+
         LoginOtpVerification::where('user_id', $user->id)
             ->whereNull('verified_at')
             ->delete();
 
-        // Save challenge in login_otp_verifications table (valid for 5 minutes)
+        // Save challenge in auth_otps table (valid for 5 minutes)
+        AuthOtp::create([
+            'user_id' => $user->id,
+            'challenge_id' => $challengeId,
+            'identifier' => ($channel === 'email' ? $user->email : ($user->mobile ?: $user->email)),
+            'channel' => $channel,
+            'purpose' => 'login',
+            'otp_hash' => $otpHash,
+            'expires_at' => now()->addMinutes(5),
+            'attempts' => 0,
+            'max_attempts' => 5,
+            'last_sent_at' => now(),
+        ]);
+
+        // Keep legacy table synced for backward compatibility
         LoginOtpVerification::create([
             'user_id' => $user->id,
             'challenge_id' => $challengeId,
@@ -291,37 +648,58 @@ class AuthController extends Controller
             'last_sent_at' => now(),
         ]);
 
-        // Send OTP to user's REGISTERED EMAIL ADDRESS
-        try {
-            Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name));
-        } catch (\Throwable $e) {
-            Log::error("EMAIL_OTP_DELIVERY_FAILURE: " . $e->getMessage(), [
-                'user_id' => $user->id,
-                'email' => $user->email,
-            ]);
+        // ROUTE OTP ACCORDING TO LOGIN METHOD USED:
+        if ($channel === 'email') {
+            try {
+                Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name, 'login'));
+            } catch (\Throwable $e) {
+                Log::error("EMAIL_OTP_DELIVERY_FAILURE: " . $e->getMessage(), [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ]);
 
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Unable to send verification code. Please try again.',
-            ], 500);
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "We couldn't send the email OTP. Please try again.",
+                ], 500);
+            }
+
+            $maskedDestination = $this->maskEmail($user->email);
+            $message = "We've sent a 6-digit OTP to your registered email.";
+        } else {
+            // Mobile channel -> SMS dispatch
+            $targetMobile = $user->mobile ?: $loginInput;
+            $sent = $this->smsService->sendOtp($targetMobile, $otp, 'login');
+
+            if (!$sent) {
+                Log::error("MOBILE_OTP_DELIVERY_FAILURE: Failed to dispatch SMS to user {$user->id}");
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "We couldn't send the mobile OTP. Please try again.",
+                ], 500);
+            }
+
+            $maskedDestination = $this->maskMobile($targetMobile);
+            $message = "We've sent a 6-digit OTP to your registered mobile number.";
         }
-
-        $maskedEmail = $this->maskEmail($user->email);
 
         return response()->json([
             'status' => 'success',
             'requires_otp' => true,
             'challenge_id' => $challengeId,
-            'email_masked' => $maskedEmail,
+            'channel' => $channel,
+            'destination_masked' => $maskedDestination,
+            'email_masked' => $maskedDestination, // backward compatibility
             'expires_in_seconds' => 300,
-            'cooldown_seconds' => 30,
-            'message' => 'A 6-digit verification code has been sent to your registered email.',
+            'cooldown_seconds' => 60,
+            'message' => $message,
         ]);
     }
 
     /**
      * ====================================================================
-     * 3. VERIFY LOGIN OTP API
+     * 6. VERIFY LOGIN OTP API
      * POST /api/auth/login/verify-otp
      * ====================================================================
      */
@@ -344,9 +722,20 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $challenge = LoginOtpVerification::where('challenge_id', $request->challenge_id)
+        $challenge = AuthOtp::where('challenge_id', $request->challenge_id)
+            ->where('purpose', 'login')
             ->whereNull('verified_at')
             ->first();
+
+        // Fallback check to legacy table if not found
+        if (!$challenge) {
+            $legacy = LoginOtpVerification::where('challenge_id', $request->challenge_id)
+                ->whereNull('verified_at')
+                ->first();
+            if ($legacy) {
+                $challenge = $legacy;
+            }
+        }
 
         if (!$challenge) {
             return response()->json([
@@ -360,7 +749,7 @@ class AuthController extends Controller
             $challenge->delete();
             return response()->json([
                 'status' => 'error',
-                'message' => 'This verification code has expired. Please request a new code.',
+                'message' => 'This OTP has expired. Please request a new OTP.',
             ], 422);
         }
 
@@ -369,7 +758,7 @@ class AuthController extends Controller
             $challenge->delete();
             return response()->json([
                 'status' => 'error',
-                'message' => 'Too many attempts. Please request a new verification code.',
+                'message' => 'Too many incorrect attempts. Please request a new OTP.',
             ], 422);
         }
 
@@ -383,20 +772,22 @@ class AuthController extends Controller
                 $challenge->delete();
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Too many attempts. Please request a new verification code.',
+                    'message' => 'Too many incorrect attempts. Please request a new OTP.',
                 ], 422);
             }
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'Invalid verification code.',
+                'message' => 'Invalid OTP. Please check and try again.',
                 'attempts_remaining' => $remaining,
             ], 422);
         }
 
-        // Mark OTP as verified & invalidate the challenge record
+        // Mark OTP as verified & invalidate the challenge records
         $challenge->update(['verified_at' => now()]);
         $challenge->delete();
+
+        LoginOtpVerification::where('challenge_id', $request->challenge_id)->delete();
 
         // Generate authenticated session / token
         $user = User::findOrFail($challenge->user_id);
@@ -418,7 +809,7 @@ class AuthController extends Controller
 
     /**
      * ====================================================================
-     * 4. RESEND LOGIN OTP API
+     * 7. RESEND LOGIN OTP API
      * POST /api/auth/login/resend-otp
      * ====================================================================
      */
@@ -435,9 +826,19 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $challenge = LoginOtpVerification::where('challenge_id', $request->challenge_id)
+        $challenge = AuthOtp::where('challenge_id', $request->challenge_id)
+            ->where('purpose', 'login')
             ->whereNull('verified_at')
             ->first();
+
+        if (!$challenge) {
+            $legacy = LoginOtpVerification::where('challenge_id', $request->challenge_id)
+                ->whereNull('verified_at')
+                ->first();
+            if ($legacy) {
+                $challenge = $legacy;
+            }
+        }
 
         if (!$challenge) {
             return response()->json([
@@ -446,12 +847,12 @@ class AuthController extends Controller
             ], 404);
         }
 
-        // 30-second cooldown enforcement
-        if ($challenge->last_sent_at && $challenge->last_sent_at->addSeconds(30)->isFuture()) {
-            $secondsRemaining = $challenge->last_sent_at->addSeconds(30)->diffInSeconds(now());
+        // 60-second cooldown enforcement
+        if ($challenge->last_sent_at && $challenge->last_sent_at->addSeconds(60)->isFuture()) {
+            $secondsRemaining = $challenge->last_sent_at->addSeconds(60)->diffInSeconds(now());
             return response()->json([
                 'status' => 'error',
-                'message' => 'Please wait before requesting another code.',
+                'message' => 'Please wait before requesting another OTP.',
                 'cooldown_seconds' => $secondsRemaining,
             ], 429);
         }
@@ -460,18 +861,34 @@ class AuthController extends Controller
         $otp = (string) random_int(100000, 999999);
         $otpHash = hash('sha256', $otp);
 
-        try {
-            Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name));
-        } catch (\Throwable $e) {
-            Log::error("EMAIL_OTP_RESEND_FAILURE: " . $e->getMessage(), [
-                'user_id' => $user->id,
-                'email' => $user->email,
-            ]);
+        $channel = $challenge->channel ?? 'email';
 
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Unable to send verification code. Please try again.',
-            ], 500);
+        if ($channel === 'email') {
+            try {
+                Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name, 'login'));
+            } catch (\Throwable $e) {
+                Log::error("EMAIL_OTP_RESEND_FAILURE: " . $e->getMessage(), [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ]);
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "We couldn't send the email OTP. Please try again.",
+                ], 500);
+            }
+            $msg = 'A new verification code has been sent to your registered email.';
+        } else {
+            $targetMobile = $user->mobile ?: $challenge->identifier;
+            $sent = $this->smsService->sendOtp($targetMobile, $otp, 'login');
+            if (!$sent) {
+                Log::error("SMS_OTP_RESEND_FAILURE: " . $user->id);
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "We couldn't send the mobile OTP. Please try again.",
+                ], 500);
+            }
+            $msg = 'A new verification code has been sent to your registered mobile number.';
         }
 
         // Update challenge with new OTP hash, resetting expiry and attempts
@@ -482,16 +899,23 @@ class AuthController extends Controller
             'last_sent_at' => now(),
         ]);
 
+        LoginOtpVerification::where('challenge_id', $request->challenge_id)->update([
+            'otp_hash' => $otpHash,
+            'expires_at' => now()->addMinutes(5),
+            'attempts' => 0,
+            'last_sent_at' => now(),
+        ]);
+
         return response()->json([
             'status' => 'success',
-            'message' => 'New verification code has been sent to your registered email.',
-            'cooldown_seconds' => 30,
+            'message' => $msg,
+            'cooldown_seconds' => 60,
         ]);
     }
 
     /**
      * ====================================================================
-     * 5. FORGOT PASSWORD FLOW (EMAIL-BASED VERIFICATION)
+     * 8. FORGOT PASSWORD FLOW (EMAIL-BASED VERIFICATION)
      * POST /api/auth/forgot-password/request
      * POST /api/auth/forgot-password/reset
      * ====================================================================
@@ -539,7 +963,9 @@ class AuthController extends Controller
 
         // Delete older unverified OTPs for this user
         OtpVerification::where('user_id', $user->id)->delete();
+        AuthOtp::where('user_id', $user->id)->where('purpose', 'password_reset')->delete();
 
+        // Save in OtpVerification and AuthOtp
         OtpVerification::create([
             'user_id' => $user->id,
             'channel' => 'email',
@@ -551,8 +977,20 @@ class AuthController extends Controller
             'last_sent_at' => now(),
         ]);
 
+        AuthOtp::create([
+            'user_id' => $user->id,
+            'identifier' => $user->email,
+            'channel' => 'email',
+            'purpose' => 'password_reset',
+            'otp_hash' => $otpHash,
+            'expires_at' => now()->addMinutes(10),
+            'attempts' => 0,
+            'max_attempts' => 5,
+            'last_sent_at' => now(),
+        ]);
+
         try {
-            Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name));
+            Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name, 'password_reset'));
         } catch (\Throwable $e) {
             Log::error("FORGOT_PASSWORD_EMAIL_FAILURE: " . $e->getMessage(), ['user_id' => $user->id]);
             return response()->json([
@@ -650,6 +1088,7 @@ class AuthController extends Controller
         ]);
 
         $verification->delete();
+        AuthOtp::where('user_id', $user->id)->where('purpose', 'password_reset')->delete();
 
         return response()->json([
             'status' => 'success',
@@ -659,7 +1098,7 @@ class AuthController extends Controller
 
     /**
      * ====================================================================
-     * 6. AUTHENTICATED USER & PROFILE
+     * 9. AUTHENTICATED USER & PROFILE
      * ====================================================================
      */
     protected function resolveUser(Request $request): ?User
@@ -733,7 +1172,7 @@ class AuthController extends Controller
 
     /**
      * ====================================================================
-     * 7. USER LOGOUT
+     * 10. USER LOGOUT
      * POST /api/auth/logout
      * ====================================================================
      */

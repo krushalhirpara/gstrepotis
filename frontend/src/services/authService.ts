@@ -10,6 +10,7 @@ export interface AuthUser {
   user_type?: string;
   role?: string;
   status?: string;
+  account_status?: string;
   credits?: number;
   is_admin?: boolean;
   provider?: string;
@@ -27,19 +28,31 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
+export interface SignupChallengeResponse {
+  status: string;
+  requires_verification: boolean;
+  signup_token: string;
+  email_masked: string;
+  mobile_masked: string;
+  expires_in_seconds?: number;
+  cooldown_seconds?: number;
+  message?: string;
+}
+
 export interface LoginChallengeResponse {
   status: string;
   requires_otp: boolean;
   challenge_id: string;
-  email_masked: string;
+  channel?: 'email' | 'sms';
+  destination_masked: string;
+  email_masked?: string;
   expires_in_seconds?: number;
   cooldown_seconds?: number;
   message?: string;
 }
 
 /**
- * Direct Signup (Option 1: Name + Mobile + Email + Password)
- * NO OTP during signup. Creates user account immediately.
+ * Step 1 Signup: Submit Full Name, Email, Mobile, Password -> Generate Dual OTPs
  */
 export async function signup(data: {
   name: string;
@@ -47,8 +60,20 @@ export async function signup(data: {
   mobile: string;
   password: string;
   password_confirmation: string;
+}): Promise<SignupChallengeResponse> {
+  const response: SignupChallengeResponse = await apiClient.post('/api/auth/signup', data);
+  return response;
+}
+
+/**
+ * Step 2 Signup: Verify Email OTP & Mobile OTP -> Activate Account & Authenticate
+ */
+export async function verifySignup(data: {
+  signup_token: string;
+  email_otp: string;
+  mobile_otp: string;
 }): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/register', data);
+  const response: AuthResponse = await apiClient.post('/api/auth/signup/verify', data);
 
   if (response.access_token) {
     localStorage.setItem('gst_token', response.access_token);
@@ -61,7 +86,25 @@ export async function signup(data: {
 }
 
 /**
- * Step 1 Login: Verify Email/Mobile + Password -> Trigger Email OTP Challenge
+ * Resend Signup Email OTP
+ */
+export async function resendSignupEmailOtp(data: {
+  signup_token: string;
+}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
+  return await apiClient.post('/api/auth/signup/resend-email-otp', data);
+}
+
+/**
+ * Resend Signup Mobile OTP
+ */
+export async function resendSignupMobileOtp(data: {
+  signup_token: string;
+}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
+  return await apiClient.post('/api/auth/signup/resend-mobile-otp', data);
+}
+
+/**
+ * Step 1 Login: Verify Email/Mobile + Password -> Trigger Targeted OTP Challenge
  */
 export async function loginWithCredentials(data: {
   login: string;
@@ -72,7 +115,7 @@ export async function loginWithCredentials(data: {
 }
 
 /**
- * Step 2 Login: Verify 6-digit Email OTP & Complete Authentication
+ * Step 2 Login: Verify 6-digit OTP & Complete Authentication
  */
 export async function verifyLoginOtp(data: {
   challenge_id: string;
@@ -91,7 +134,7 @@ export async function verifyLoginOtp(data: {
 }
 
 /**
- * Resend Login Email OTP
+ * Resend Login OTP (Email or Mobile depending on challenge channel)
  */
 export async function resendLoginOtp(data: {
   challenge_id: string;
@@ -148,6 +191,8 @@ export async function logout(): Promise<void> {
   localStorage.removeItem('gst_token');
   localStorage.removeItem('gst_user');
   localStorage.removeItem('gst_admin_authenticated');
+  sessionStorage.removeItem('gst_signup_challenge');
+  sessionStorage.removeItem('gst_login_challenge');
 }
 
 /**

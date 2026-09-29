@@ -19,11 +19,15 @@ use App\Http\Controllers\GstAuditController;
 
 // Authentication System (Signup Direct, Login with Email OTP, Password Reset)
 Route::prefix('auth')->group(function () {
-    // Signup (Option 1: Direct Name + Mobile + Email + Password)
+    // Signup (Name + Mobile + Email + Password -> Dual OTP -> Verify)
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/signup', [AuthController::class, 'register']);
+    Route::post('/signup/verify', [AuthController::class, 'verifySignup']);
+    Route::post('/register/verify', [AuthController::class, 'verifySignup']);
+    Route::post('/signup/resend-email-otp', [AuthController::class, 'resendSignupEmailOtp']);
+    Route::post('/signup/resend-mobile-otp', [AuthController::class, 'resendSignupMobileOtp']);
 
-    // Login (Email or Mobile + Password -> Mandatory Email OTP Challenge)
+    // Login (Email or Mobile + Password -> Targeted Channel OTP Challenge)
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/login/verify-otp', [AuthController::class, 'verifyLoginOtp']);
     Route::post('/login/resend-otp', [AuthController::class, 'resendLoginOtp']);
