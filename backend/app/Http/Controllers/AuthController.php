@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Mail\OtpVerificationMail;
 use App\Services\FirebaseTokenVerifier;
 use App\Services\SmsService;
+use App\Services\TwilioVerifyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -22,11 +23,16 @@ class AuthController extends Controller
 {
     protected FirebaseTokenVerifier $tokenVerifier;
     protected SmsService $smsService;
+    protected TwilioVerifyService $twilioVerify;
 
-    public function __construct(FirebaseTokenVerifier $tokenVerifier, SmsService $smsService)
-    {
+    public function __construct(
+        FirebaseTokenVerifier $tokenVerifier,
+        SmsService $smsService,
+        TwilioVerifyService $twilioVerify
+    ) {
         $this->tokenVerifier = $tokenVerifier;
         $this->smsService = $smsService;
+        $this->twilioVerify = $twilioVerify;
     }
 
     /**
@@ -38,7 +44,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Validate and normalize Indian mobile number to canonical +91XXXXXXXXXX format.
+     * Validate and normalize Indian mobile number to canonical +91XXXXXXXXXX E.164 format.
      */
     public function normalizeMobile(?string $mobile): ?string
     {
@@ -197,18 +203,10 @@ class AuthController extends Controller
             ->orWhere('mobile', $normalizedMobile)
             ->delete();
 
-        // Generate TWO distinct cryptographically secure 6-digit OTPs
+        // 1. Generate & send Email OTP to submitted email address
         $emailOtp = (string) random_int(100000, 999999);
-        do {
-            $mobileOtp = (string) random_int(100000, 999999);
-        } while ($mobileOtp === $emailOtp);
-
         $emailOtpHash = hash('sha256', $emailOtp);
-        $mobileOtpHash = hash('sha256', $mobileOtp);
-        $passwordHash = Hash::make($request->password);
-        $signupToken = (string) Str::uuid();
 
-        // 1. Send Email OTP to submitted email address
         try {
             Mail::to($normalizedEmail)->send(new OtpVerificationMail($emailOtp, trim($request->name), 'signup'));
         } catch (\Throwable $e) {
@@ -218,20 +216,42 @@ class AuthController extends Controller
 
             return response()->json([
                 'status' => 'error',
+                'code' => 'EMAIL_OTP_SEND_FAILED',
                 'message' => "We couldn't send the email OTP. Please try again.",
-            ], 500);
+            ], 422);
         }
 
-        // 2. Send Mobile/SMS OTP to submitted mobile number
-        $smsSuccess = $this->smsService->sendOtp($normalizedMobile, $mobileOtp, 'signup');
-        if (!$smsSuccess) {
-            Log::error("SIGNUP_SMS_OTP_DISPATCH_FAILURE: Failed to dispatch SMS OTP to {$normalizedMobile}");
+        // 2. Start Mobile OTP Verification via Twilio Verify v2 (or configured SMS abstraction)
+        $mobileOtpHash = 'twilio_verify';
+        $useTwilioVerify = $this->twilioVerify->isEnabled();
 
-            return response()->json([
-                'status' => 'error',
-                'message' => "We couldn't send the mobile OTP. Please try again.",
-            ], 500);
+        if ($useTwilioVerify) {
+            $twilioResult = $this->twilioVerify->sendVerification($normalizedMobile);
+
+            if (!$twilioResult['success']) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 'MOBILE_OTP_SEND_FAILED',
+                    'message' => $twilioResult['message'] ?? "We couldn't send the mobile OTP. Please try again.",
+                ], 422);
+            }
+        } else {
+            // Local / Development / Fallback SMS provider
+            $localMobileOtp = (string) random_int(100000, 999999);
+            $mobileOtpHash = hash('sha256', $localMobileOtp);
+
+            $smsSuccess = $this->smsService->sendOtp($normalizedMobile, $localMobileOtp, 'signup');
+            if (!$smsSuccess) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 'MOBILE_OTP_SEND_FAILED',
+                    'message' => "We couldn't send the mobile OTP. Please try again.",
+                ], 422);
+            }
         }
+
+        $passwordHash = Hash::make($request->password);
+        $signupToken = (string) Str::uuid();
 
         // Persist pending registration record
         PendingSignup::create([
@@ -332,12 +352,30 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Verify hashes
+        // 1. Verify Email OTP Hash
         $emailOtpInput = trim($request->email_otp);
-        $mobileOtpInput = trim($request->mobile_otp);
-
         $emailMatches = (hash('sha256', $emailOtpInput) === $pending->email_otp_hash);
-        $mobileMatches = (hash('sha256', $mobileOtpInput) === $pending->mobile_otp_hash);
+
+        // 2. Verify Mobile OTP via Twilio Verify Check (or local hash fallback)
+        $mobileOtpInput = trim($request->mobile_otp);
+        $mobileMatches = false;
+        $mobileErrorMsg = null;
+
+        if ($pending->mobile_otp_hash === 'twilio_verify' || $this->twilioVerify->isEnabled()) {
+            $check = $this->twilioVerify->checkVerification($pending->mobile, $mobileOtpInput);
+
+            if ($check['approved']) {
+                $mobileMatches = true;
+            } elseif (!empty($check['fallback_to_local'])) {
+                // If Twilio is not active, fallback to hash match
+                $mobileMatches = (hash('sha256', $mobileOtpInput) === $pending->mobile_otp_hash);
+            } else {
+                $mobileMatches = false;
+                $mobileErrorMsg = $check['message'] ?? 'Invalid mobile OTP. Please check and try again.';
+            }
+        } else {
+            $mobileMatches = (hash('sha256', $mobileOtpInput) === $pending->mobile_otp_hash);
+        }
 
         // If either fails, do NOT activate account
         if (!$emailMatches || !$mobileMatches) {
@@ -365,7 +403,7 @@ class AuthController extends Controller
             if (!$mobileMatches) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Invalid mobile OTP. Please check and try again.',
+                    'message' => $mobileErrorMsg ?: 'Invalid mobile OTP. Please check and try again.',
                 ], 422);
             }
         }
@@ -459,8 +497,9 @@ class AuthController extends Controller
 
             return response()->json([
                 'status' => 'error',
+                'code' => 'EMAIL_OTP_SEND_FAILED',
                 'message' => "We couldn't send the email OTP. Please try again.",
-            ], 500);
+            ], 422);
         }
 
         $pending->update([
@@ -515,25 +554,43 @@ class AuthController extends Controller
             ], 429);
         }
 
-        $newMobileOtp = (string) random_int(100000, 999999);
-        $newOtpHash = hash('sha256', $newMobileOtp);
+        if ($this->twilioVerify->isEnabled()) {
+            $twilioResult = $this->twilioVerify->sendVerification($pending->mobile);
 
-        $sent = $this->smsService->sendOtp($pending->mobile, $newMobileOtp, 'signup');
-        if (!$sent) {
-            Log::error("SIGNUP_MOBILE_OTP_RESEND_FAILURE: Failed to dispatch SMS OTP to {$pending->mobile}");
+            if (!$twilioResult['success']) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 'MOBILE_OTP_SEND_FAILED',
+                    'message' => $twilioResult['message'] ?? "We couldn't send the mobile OTP. Please try again.",
+                ], 422);
+            }
 
-            return response()->json([
-                'status' => 'error',
-                'message' => "We couldn't send the mobile OTP. Please try again.",
-            ], 500);
+            $pending->update([
+                'mobile_otp_hash' => 'twilio_verify',
+                'mobile_expires_at' => now()->addMinutes(5),
+                'mobile_attempts' => 0,
+                'mobile_last_sent_at' => now(),
+            ]);
+        } else {
+            $newMobileOtp = (string) random_int(100000, 999999);
+            $newOtpHash = hash('sha256', $newMobileOtp);
+
+            $sent = $this->smsService->sendOtp($pending->mobile, $newMobileOtp, 'signup');
+            if (!$sent) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 'MOBILE_OTP_SEND_FAILED',
+                    'message' => "We couldn't send the mobile OTP. Please try again.",
+                ], 422);
+            }
+
+            $pending->update([
+                'mobile_otp_hash' => $newOtpHash,
+                'mobile_expires_at' => now()->addMinutes(5),
+                'mobile_attempts' => 0,
+                'mobile_last_sent_at' => now(),
+            ]);
         }
-
-        $pending->update([
-            'mobile_otp_hash' => $newOtpHash,
-            'mobile_expires_at' => now()->addMinutes(5),
-            'mobile_attempts' => 0,
-            'mobile_last_sent_at' => now(),
-        ]);
 
         return response()->json([
             'status' => 'success',
@@ -547,7 +604,7 @@ class AuthController extends Controller
      * 5. LOGIN STEP 1: Email / Mobile + Password -> Targeted OTP Routing
      * POST /api/auth/login
      * If user logs in with Email -> Send OTP ONLY to registered Email
-     * If user logs in with Mobile -> Send OTP ONLY to registered Mobile
+     * If user logs in with Mobile -> Send OTP ONLY to registered Mobile via Twilio Verify
      * ====================================================================
      */
     public function login(Request $request)
@@ -608,11 +665,6 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // CRITICAL: DO NOT log the user in yet. Issue Pending OTP Challenge.
-        $otp = (string) random_int(100000, 999999);
-        $otpHash = hash('sha256', $otp);
-        $challengeId = (string) Str::uuid();
-
         // Invalidate previous unverified login challenges for this user
         AuthOtp::where('user_id', $user->id)
             ->where('purpose', 'login')
@@ -622,6 +674,64 @@ class AuthController extends Controller
         LoginOtpVerification::where('user_id', $user->id)
             ->whereNull('verified_at')
             ->delete();
+
+        $challengeId = (string) Str::uuid();
+
+        // ROUTE OTP ACCORDING TO LOGIN METHOD USED:
+        if ($channel === 'email') {
+            $otp = (string) random_int(100000, 999999);
+            $otpHash = hash('sha256', $otp);
+
+            try {
+                Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name, 'login'));
+            } catch (\Throwable $e) {
+                Log::error("EMAIL_OTP_DELIVERY_FAILURE: " . $e->getMessage(), [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ]);
+
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 'EMAIL_OTP_SEND_FAILED',
+                    'message' => "We couldn't send the email OTP. Please try again.",
+                ], 422);
+            }
+
+            $maskedDestination = $this->maskEmail($user->email);
+            $message = "We've sent a 6-digit OTP to your registered email.";
+        } else {
+            // Mobile channel -> SMS dispatch via Twilio Verify
+            $targetMobile = $this->normalizeMobile($user->mobile ?: $loginInput);
+
+            if ($this->twilioVerify->isEnabled()) {
+                $twilioResult = $this->twilioVerify->sendVerification($targetMobile);
+
+                if (!$twilioResult['success']) {
+                    return response()->json([
+                        'status' => 'error',
+                        'code' => 'MOBILE_OTP_SEND_FAILED',
+                        'message' => $twilioResult['message'] ?? "We couldn't send the mobile OTP. Please try again.",
+                    ], 422);
+                }
+
+                $otpHash = 'twilio_verify';
+            } else {
+                $localOtp = (string) random_int(100000, 999999);
+                $otpHash = hash('sha256', $localOtp);
+
+                $sent = $this->smsService->sendOtp($targetMobile, $localOtp, 'login');
+                if (!$sent) {
+                    return response()->json([
+                        'status' => 'error',
+                        'code' => 'MOBILE_OTP_SEND_FAILED',
+                        'message' => "We couldn't send the mobile OTP. Please try again.",
+                    ], 422);
+                }
+            }
+
+            $maskedDestination = $this->maskMobile($targetMobile);
+            $message = "We've sent a 6-digit OTP to your registered mobile number.";
+        }
 
         // Save challenge in auth_otps table (valid for 5 minutes)
         AuthOtp::create([
@@ -637,7 +747,7 @@ class AuthController extends Controller
             'last_sent_at' => now(),
         ]);
 
-        // Keep legacy table synced for backward compatibility
+        // Keep legacy table synced
         LoginOtpVerification::create([
             'user_id' => $user->id,
             'challenge_id' => $challengeId,
@@ -647,42 +757,6 @@ class AuthController extends Controller
             'max_attempts' => 5,
             'last_sent_at' => now(),
         ]);
-
-        // ROUTE OTP ACCORDING TO LOGIN METHOD USED:
-        if ($channel === 'email') {
-            try {
-                Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name, 'login'));
-            } catch (\Throwable $e) {
-                Log::error("EMAIL_OTP_DELIVERY_FAILURE: " . $e->getMessage(), [
-                    'user_id' => $user->id,
-                    'email' => $user->email,
-                ]);
-
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "We couldn't send the email OTP. Please try again.",
-                ], 500);
-            }
-
-            $maskedDestination = $this->maskEmail($user->email);
-            $message = "We've sent a 6-digit OTP to your registered email.";
-        } else {
-            // Mobile channel -> SMS dispatch
-            $targetMobile = $user->mobile ?: $loginInput;
-            $sent = $this->smsService->sendOtp($targetMobile, $otp, 'login');
-
-            if (!$sent) {
-                Log::error("MOBILE_OTP_DELIVERY_FAILURE: Failed to dispatch SMS to user {$user->id}");
-
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "We couldn't send the mobile OTP. Please try again.",
-                ], 500);
-            }
-
-            $maskedDestination = $this->maskMobile($targetMobile);
-            $message = "We've sent a 6-digit OTP to your registered mobile number.";
-        }
 
         return response()->json([
             'status' => 'success',
@@ -764,9 +838,28 @@ class AuthController extends Controller
 
         $challenge->increment('attempts');
 
-        // Verify OTP hash
-        $inputHash = hash('sha256', trim($request->otp));
-        if ($inputHash !== $challenge->otp_hash) {
+        // Check verification (Twilio Verify or local hash)
+        $inputOtp = trim($request->otp);
+        $isVerified = false;
+        $errorMsg = null;
+
+        if (($challenge->channel ?? '') === 'sms' && ($challenge->otp_hash === 'twilio_verify' || $this->twilioVerify->isEnabled())) {
+            $check = $this->twilioVerify->checkVerification($challenge->identifier, $inputOtp);
+
+            if ($check['approved']) {
+                $isVerified = true;
+            } elseif (!empty($check['fallback_to_local'])) {
+                $isVerified = (hash('sha256', $inputOtp) === $challenge->otp_hash);
+            } else {
+                $isVerified = false;
+                $errorMsg = $check['message'] ?? 'Invalid OTP. Please check and try again.';
+            }
+        } else {
+            $inputHash = hash('sha256', $inputOtp);
+            $isVerified = ($inputHash === $challenge->otp_hash);
+        }
+
+        if (!$isVerified) {
             $remaining = max($challenge->max_attempts - $challenge->attempts, 0);
             if ($remaining === 0) {
                 $challenge->delete();
@@ -778,7 +871,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'Invalid OTP. Please check and try again.',
+                'message' => $errorMsg ?: 'Invalid OTP. Please check and try again.',
                 'attempts_remaining' => $remaining,
             ], 422);
         }
@@ -858,12 +951,12 @@ class AuthController extends Controller
         }
 
         $user = User::findOrFail($challenge->user_id);
-        $otp = (string) random_int(100000, 999999);
-        $otpHash = hash('sha256', $otp);
-
         $channel = $challenge->channel ?? 'email';
 
         if ($channel === 'email') {
+            $otp = (string) random_int(100000, 999999);
+            $otpHash = hash('sha256', $otp);
+
             try {
                 Mail::to($user->email)->send(new OtpVerificationMail($otp, $user->name, 'login'));
             } catch (\Throwable $e) {
@@ -874,19 +967,38 @@ class AuthController extends Controller
 
                 return response()->json([
                     'status' => 'error',
+                    'code' => 'EMAIL_OTP_SEND_FAILED',
                     'message' => "We couldn't send the email OTP. Please try again.",
-                ], 500);
+                ], 422);
             }
             $msg = 'A new verification code has been sent to your registered email.';
         } else {
-            $targetMobile = $user->mobile ?: $challenge->identifier;
-            $sent = $this->smsService->sendOtp($targetMobile, $otp, 'login');
-            if (!$sent) {
-                Log::error("SMS_OTP_RESEND_FAILURE: " . $user->id);
-                return response()->json([
-                    'status' => 'error',
-                    'message' => "We couldn't send the mobile OTP. Please try again.",
-                ], 500);
+            $targetMobile = $this->normalizeMobile($user->mobile ?: $challenge->identifier);
+
+            if ($this->twilioVerify->isEnabled()) {
+                $twilioResult = $this->twilioVerify->sendVerification($targetMobile);
+
+                if (!$twilioResult['success']) {
+                    return response()->json([
+                        'status' => 'error',
+                        'code' => 'MOBILE_OTP_SEND_FAILED',
+                        'message' => $twilioResult['message'] ?? "We couldn't send the mobile OTP. Please try again.",
+                    ], 422);
+                }
+
+                $otpHash = 'twilio_verify';
+            } else {
+                $otp = (string) random_int(100000, 999999);
+                $otpHash = hash('sha256', $otp);
+
+                $sent = $this->smsService->sendOtp($targetMobile, $otp, 'login');
+                if (!$sent) {
+                    return response()->json([
+                        'status' => 'error',
+                        'code' => 'MOBILE_OTP_SEND_FAILED',
+                        'message' => "We couldn't send the mobile OTP. Please try again.",
+                    ], 422);
+                }
             }
             $msg = 'A new verification code has been sent to your registered mobile number.';
         }

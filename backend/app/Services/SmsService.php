@@ -12,13 +12,15 @@ class SmsService
     protected ?string $apiKey;
     protected ?string $senderId;
     protected ?string $templateId;
+    protected TwilioVerifyService $twilioVerify;
 
-    public function __construct()
+    public function __construct(TwilioVerifyService $twilioVerify)
     {
         $this->provider = strtolower(env('SMS_PROVIDER', 'log'));
         $this->apiKey = env('SMS_API_KEY') ?: env('FAST2SMS_API_KEY') ?: env('MSG91_AUTH_KEY') ?: env('TWOFACTOR_API_KEY');
         $this->senderId = env('SMS_SENDER_ID', 'GSTREP');
         $this->templateId = env('SMS_TEMPLATE_ID');
+        $this->twilioVerify = $twilioVerify;
     }
 
     /**
@@ -39,6 +41,12 @@ class SmsService
             return false;
         }
 
+        // 1. Twilio Verify v2 Provider
+        if ($this->provider === 'twilio' || $this->provider === 'twilio_verify' || $this->twilioVerify->isEnabled()) {
+            $result = $this->twilioVerify->sendVerification("+91{$tenDigitMobile}");
+            return (bool) ($result['success'] ?? false);
+        }
+
         $actionText = match ($purpose) {
             'login' => 'login verification',
             'signup' => 'account verification',
@@ -48,7 +56,7 @@ class SmsService
 
         $message = "Your GST REPOTIS {$actionText} OTP is: {$otp}. Valid for 5 minutes. Do not share this code with anyone.";
 
-        // 1. Fast2SMS Provider (Indian SMS gateway)
+        // 2. Fast2SMS Provider (Indian SMS gateway)
         if ($this->provider === 'fast2sms') {
             if (!$this->apiKey) {
                 Log::error("SMS_SERVICE_ERROR: FAST2SMS API key is missing. Please set SMS_API_KEY in environment variables.");
@@ -76,7 +84,7 @@ class SmsService
             }
         }
 
-        // 2. MSG91 Provider
+        // 3. MSG91 Provider
         if ($this->provider === 'msg91') {
             if (!$this->apiKey) {
                 Log::error("SMS_SERVICE_ERROR: MSG91 auth key is missing. Please set SMS_API_KEY in environment variables.");
@@ -108,7 +116,7 @@ class SmsService
             }
         }
 
-        // 3. 2Factor.in Provider
+        // 4. 2Factor.in Provider
         if ($this->provider === '2factor' || $this->provider === 'twofactor') {
             if (!$this->apiKey) {
                 Log::error("SMS_SERVICE_ERROR: 2Factor API key is missing.");
@@ -127,33 +135,6 @@ class SmsService
                 return false;
             } catch (Throwable $e) {
                 Log::error("2FACTOR_EXCEPTION: " . $e->getMessage());
-                return false;
-            }
-        }
-
-        // 4. Twilio Provider
-        if ($this->provider === 'twilio') {
-            $sid = env('TWILIO_SID') ?: env('TWILIO_ACCOUNT_SID');
-            $token = env('TWILIO_TOKEN') ?: env('TWILIO_AUTH_TOKEN');
-            $from = env('TWILIO_FROM');
-
-            if (!$sid || !$token || !$from) {
-                Log::error("SMS_SERVICE_ERROR: Twilio credentials missing in environment variables.");
-                return false;
-            }
-
-            try {
-                $response = Http::withBasicAuth($sid, $token)
-                    ->asForm()
-                    ->post("https://api.twilio.com/2010-04-01/Accounts/{$sid}/Messages.json", [
-                        'From' => $from,
-                        'To' => "+91{$tenDigitMobile}",
-                        'Body' => $message,
-                    ]);
-
-                return $response->successful();
-            } catch (Throwable $e) {
-                Log::error("TWILIO_EXCEPTION: " . $e->getMessage());
                 return false;
             }
         }

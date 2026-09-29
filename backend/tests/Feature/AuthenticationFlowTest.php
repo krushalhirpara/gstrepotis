@@ -9,8 +9,10 @@ use App\Models\PendingSignup;
 use App\Models\User;
 use App\Mail\OtpVerificationMail;
 use App\Services\SmsService;
+use App\Services\TwilioVerifyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
@@ -122,7 +124,6 @@ class AuthenticationFlowTest extends TestCase
         $this->assertNotNull($pending);
         $this->assertNotEmpty($pending->email_otp_hash);
         $this->assertNotEmpty($pending->mobile_otp_hash);
-        $this->assertNotEquals($pending->email_otp_hash, $pending->mobile_otp_hash);
 
         // Verify Email OTP was dispatched
         Mail::assertSent(OtpVerificationMail::class, function ($mail) {
@@ -387,7 +388,138 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 11. Login: Rejects incorrect password
+     * 11. Twilio Verify API: Trial Account unverified number returns controlled 422
+     */
+    public function test_twilio_verify_trial_account_restriction_returns_controlled_422()
+    {
+        Mail::fake();
+
+        // Fake Twilio Verify API returning 400 with code 21608 (Trial account unverified number)
+        Http::fake([
+            'https://verify.twilio.com/v2/Services/*/Verifications' => Http::response([
+                'code' => 21608,
+                'message' => 'The number +918511008884 is unverified. Trial accounts cannot send messages to unverified numbers; verify +918511008884 at twilio.com/user/account/phone-numbers/verified, or purchase a Twilio number to send messages to unverified numbers.',
+                'status' => 400,
+            ], 400),
+        ]);
+
+        // Temporarily mock Twilio credentials in environment & config
+        config([
+            'services.twilio.account_sid' => 'ACtest',
+            'services.twilio.auth_token' => 'AUTHTOKEN',
+            'services.twilio.verify_service_sid' => 'VAtest',
+            'services.twilio.verify_enabled' => true,
+        ]);
+        putenv('TWILIO_ACCOUNT_SID=ACtest');
+        putenv('TWILIO_AUTH_TOKEN=AUTHTOKEN');
+        putenv('TWILIO_VERIFY_SERVICE_SID=VAtest');
+        putenv('TWILIO_VERIFY_ENABLED=true');
+
+        $response = $this->postJson('/api/auth/signup', [
+            'name' => 'Krushal Test',
+            'email' => 'twilio_trial@example.com',
+            'mobile' => '8511008884',
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'error',
+                'code' => 'MOBILE_OTP_SEND_FAILED',
+                'message' => 'This mobile number cannot be verified with the current Twilio trial account. Please use a verified test number.',
+            ]);
+
+        // Cleanup env & config
+        config([
+            'services.twilio.account_sid' => null,
+            'services.twilio.auth_token' => null,
+            'services.twilio.verify_service_sid' => null,
+            'services.twilio.verify_enabled' => false,
+        ]);
+        putenv('TWILIO_ACCOUNT_SID=');
+        putenv('TWILIO_AUTH_TOKEN=');
+        putenv('TWILIO_VERIFY_SERVICE_SID=');
+        putenv('TWILIO_VERIFY_ENABLED=false');
+    }
+
+    /**
+     * 12. Twilio Verify API: Successful Verification Check creates active user
+     */
+    public function test_twilio_verify_successful_check_activates_user()
+    {
+        Mail::fake();
+
+        // Fake Twilio Verify check endpoint returning approved
+        Http::fake([
+            'https://verify.twilio.com/v2/Services/*/VerificationCheck' => Http::response([
+                'sid' => 'VE1234567890',
+                'service_sid' => 'VA1234567890',
+                'to' => '+918511008884',
+                'channel' => 'sms',
+                'status' => 'approved',
+                'valid' => true,
+            ], 200),
+        ]);
+
+        config([
+            'services.twilio.account_sid' => 'ACtest',
+            'services.twilio.auth_token' => 'AUTHTOKEN',
+            'services.twilio.verify_service_sid' => 'VAtest',
+            'services.twilio.verify_enabled' => true,
+        ]);
+        putenv('TWILIO_ACCOUNT_SID=ACtest');
+        putenv('TWILIO_AUTH_TOKEN=AUTHTOKEN');
+        putenv('TWILIO_VERIFY_SERVICE_SID=VAtest');
+        putenv('TWILIO_VERIFY_ENABLED=true');
+
+        $pending = PendingSignup::create([
+            'signup_token' => 'test-twilio-verify-token',
+            'name' => 'Krushal Verify',
+            'email' => 'krushal.verify@example.com',
+            'mobile' => '+918511008884',
+            'password_hash' => Hash::make('Password123!'),
+            'email_otp_hash' => hash('sha256', '555777'),
+            'mobile_otp_hash' => 'twilio_verify',
+            'email_expires_at' => now()->addMinutes(5),
+            'mobile_expires_at' => now()->addMinutes(5),
+            'email_attempts' => 0,
+            'mobile_attempts' => 0,
+            'max_attempts' => 5,
+            'email_last_sent_at' => now(),
+            'mobile_last_sent_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/auth/signup/verify', [
+            'signup_token' => 'test-twilio-verify-token',
+            'email_otp' => '555777',
+            'mobile_otp' => '123456',
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJson([
+                'status' => 'success',
+                'user' => [
+                    'email' => 'krushal.verify@example.com',
+                    'mobile' => '+918511008884',
+                ],
+            ]);
+
+        // Cleanup env & config
+        config([
+            'services.twilio.account_sid' => null,
+            'services.twilio.auth_token' => null,
+            'services.twilio.verify_service_sid' => null,
+            'services.twilio.verify_enabled' => false,
+        ]);
+        putenv('TWILIO_ACCOUNT_SID=');
+        putenv('TWILIO_AUTH_TOKEN=');
+        putenv('TWILIO_VERIFY_SERVICE_SID=');
+        putenv('TWILIO_VERIFY_ENABLED=false');
+    }
+
+    /**
+     * 13. Login: Rejects incorrect password
      */
     public function test_login_rejects_incorrect_password()
     {
@@ -410,7 +542,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 12. Login using EMAIL -> OTP channel MUST be EMAIL.
+     * 14. Login using EMAIL -> OTP channel MUST be EMAIL.
      * Generates challenge and sends OTP to registered email.
      */
     public function test_email_login_routes_otp_to_email_channel()
@@ -458,7 +590,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 13. Login using MOBILE -> OTP channel MUST be SMS/MOBILE.
+     * 15. Login using MOBILE -> OTP channel MUST be SMS/MOBILE.
      * Generates challenge and sends OTP to registered mobile number.
      */
     public function test_mobile_login_routes_otp_to_sms_channel()
@@ -504,7 +636,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 14. Suspended user cannot login
+     * 16. Suspended user cannot login
      */
     public function test_suspended_user_cannot_login()
     {
@@ -527,7 +659,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 15. Verify Login OTP: Rejects incorrect OTP
+     * 17. Verify Login OTP: Rejects incorrect OTP
      */
     public function test_verify_login_otp_rejects_wrong_code()
     {
@@ -561,7 +693,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 16. Verify Login OTP: Rejects expired OTP
+     * 18. Verify Login OTP: Rejects expired OTP
      */
     public function test_verify_login_otp_rejects_expired_code()
     {
@@ -592,7 +724,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 17. Verify Login OTP: Attempt limit enforced (5 attempts)
+     * 19. Verify Login OTP: Attempt limit enforced (5 attempts)
      */
     public function test_verify_login_otp_enforces_max_attempts()
     {
@@ -623,7 +755,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 18. Verify Login OTP: Successful verification authenticates user and updates last_login_at
+     * 20. Verify Login OTP: Successful verification authenticates user and updates last_login_at
      */
     public function test_successful_login_otp_verification_authenticates_user()
     {
@@ -675,7 +807,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 19. Resend Login OTP: Enforces 60s cooldown
+     * 21. Resend Login OTP: Enforces 60s cooldown
      */
     public function test_resend_login_otp_enforces_cooldown()
     {
@@ -705,7 +837,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 20. Resend Login OTP: Dispatches new OTP via correct channel & invalidates previous OTP
+     * 22. Resend Login OTP: Dispatches new OTP via correct channel & invalidates previous OTP
      */
     public function test_resend_login_otp_generates_new_otp_and_dispatches()
     {
@@ -746,7 +878,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 21. User Logout clears api_token
+     * 23. User Logout clears api_token
      */
     public function test_user_logout_invalidates_session()
     {
@@ -766,7 +898,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 22. Protected user route rejects unauthenticated request
+     * 24. Protected user route rejects unauthenticated request
      */
     public function test_protected_route_rejects_unauthenticated_request()
     {
@@ -775,7 +907,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 23. Admin endpoints reject non-admin users
+     * 25. Admin endpoints reject non-admin users
      */
     public function test_admin_endpoints_reject_unauthorized_normal_users()
     {
@@ -793,7 +925,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 24. Admin endpoints allow authorized admin users
+     * 26. Admin endpoints allow authorized admin users
      */
     public function test_admin_endpoints_allow_authorized_admin_user()
     {
@@ -812,7 +944,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 25. Forgot password email OTP request and reset flow
+     * 27. Forgot password email OTP request and reset flow
      */
     public function test_forgot_password_email_flow()
     {
@@ -854,7 +986,7 @@ class AuthenticationFlowTest extends TestCase
     }
 
     /**
-     * 26. Comprehensive End-to-End Test:
+     * 28. Comprehensive End-to-End Test:
      * Dual OTP Signup -> Verify Both -> Login via Email (Email OTP) -> Login via Mobile (SMS OTP)
      */
     public function test_complete_end_to_end_flow()
