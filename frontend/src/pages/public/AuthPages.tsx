@@ -430,32 +430,6 @@ export const SignInPage: React.FC = () => {
         {/* STEP 1: EMAIL/MOBILE + PASSWORD FORM */}
         {!isOtpStep ? (
           <div className="space-y-4">
-            {/* Google Sign In Button */}
-            <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={isLoading || isGoogleLoading}
-              className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-[#CBD5E1] text-[#1E293B] font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center"
-            >
-              {isGoogleLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <GoogleIcon />
-              )}
-              <span>Continue with Google</span>
-            </button>
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-3 text-slate-400 font-bold tracking-wider">
-                  OR SIGN IN WITH PASSWORD
-                </span>
-              </div>
-            </div>
-
             <form onSubmit={handleCredentialsSubmit} className="space-y-4">
               {/* Email / Mobile Field */}
               <div>
@@ -540,6 +514,33 @@ export const SignInPage: React.FC = () => {
                   )}
                 </button>
               </div>
+
+              {/* Divider: OR SIGN IN WITH GOOGLE */}
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200"></div>
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-3 text-slate-400 font-bold tracking-wider">
+                    OR SIGN IN WITH GOOGLE
+                  </span>
+                </div>
+              </div>
+
+              {/* Google Sign In Button */}
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={isLoading || isGoogleLoading}
+                className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-[#CBD5E1] text-[#1E293B] font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center"
+              >
+                {isGoogleLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <GoogleIcon />
+                )}
+                <span>Continue with Google</span>
+              </button>
 
               <p className="text-xs text-slate-600 text-center pt-2">
                 Don't have an account?{' '}
@@ -933,32 +934,6 @@ export const SignUpPage: React.FC = () => {
         {/* STEP 1: SIGNUP FORM */}
         {!isOtpStep ? (
           <div className="space-y-4">
-            {/* Google Sign Up Button */}
-            <button
-              type="button"
-              onClick={handleGoogleSignUp}
-              disabled={isLoading || isGoogleLoading}
-              className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-[#CBD5E1] text-[#1E293B] font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center"
-            >
-              {isGoogleLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <GoogleIcon />
-              )}
-              <span>Continue with Google</span>
-            </button>
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-3 text-slate-400 font-bold tracking-wider">
-                  OR SIGN UP WITH MOBILE & EMAIL
-                </span>
-              </div>
-            </div>
-
             <form onSubmit={handleSignUpSubmit} className="space-y-4">
               {/* Full Name Field */}
               <div>
@@ -1173,6 +1148,33 @@ export const SignUpPage: React.FC = () => {
                   )}
                 </button>
               </div>
+
+              {/* Divider: OR SIGN UP WITH GOOGLE */}
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200"></div>
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-3 text-slate-400 font-bold tracking-wider">
+                    OR SIGN UP WITH GOOGLE
+                  </span>
+                </div>
+              </div>
+
+              {/* Google Sign Up Button */}
+              <button
+                type="button"
+                onClick={handleGoogleSignUp}
+                disabled={isLoading || isGoogleLoading}
+                className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-[#CBD5E1] text-[#1E293B] font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center"
+              >
+                {isGoogleLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                ) : (
+                  <GoogleIcon />
+                )}
+                <span>Continue with Google</span>
+              </button>
 
               <p className="text-xs text-slate-600 text-center pt-2">
                 Already have an account?{' '}
