@@ -10,21 +10,14 @@ use Illuminate\Support\Facades\Log;
 
 class OtpService
 {
-    protected SmsService $smsService;
-
-    public function __construct(SmsService $smsService)
-    {
-        $this->smsService = $smsService;
-    }
-
     /**
-     * Generate & send a 6-digit OTP for Email or Mobile channel
+     * Generate & send a 6-digit OTP for Email channel
      */
     public function createAndSendOtp(User $user, string $channel, string $destination): array
     {
         // Check for existing active OTP and cooldown (30s limit)
         $existing = OtpVerification::where('user_id', $user->id)
-            ->where('channel', $channel)
+            ->where('channel', 'email')
             ->where('destination', $destination)
             ->whereNull('verified_at')
             ->latest()
@@ -43,34 +36,28 @@ class OtpService
         $otp = (string) random_int(100000, 999999);
         $otpHash = hash('sha256', $otp);
 
-        // Dispatch OTP via appropriate channel
-        $deliverySuccess = false;
-        if ($channel === 'email') {
-            $deliverySuccess = $this->sendEmailOtp($destination, $otp);
-        } else if ($channel === 'mobile') {
-            $deliverySuccess = $this->smsService->sendOtp($destination, $otp);
-        }
+        // Dispatch Email OTP
+        $deliverySuccess = $this->sendEmailOtp($destination, $otp);
 
-        // If real delivery failed in production mode, return clear error
         if (!$deliverySuccess) {
             return [
                 'success' => false,
-                'code' => $channel === 'email' ? 'OTP_EMAIL_DELIVERY_FAILED' : 'OTP_MOBILE_DELIVERY_FAILED',
+                'code' => 'OTP_EMAIL_DELIVERY_FAILED',
                 'delivery_failed' => true,
-                'message' => "Unable to send verification code to your " . ($channel === 'email' ? 'email' : 'mobile number') . ". Please verify SMTP configuration or try again.",
+                'message' => "Unable to send verification code to your email. Please verify SMTP configuration or try again.",
             ];
         }
 
-        // Invalidate older unverified OTPs for this channel
+        // Invalidate older unverified OTPs for this user
         OtpVerification::where('user_id', $user->id)
-            ->where('channel', $channel)
+            ->where('channel', 'email')
             ->whereNull('verified_at')
             ->delete();
 
-        // Save hashed OTP ONLY upon successful delivery / dev dispatch
+        // Save hashed OTP ONLY upon successful delivery
         $verification = OtpVerification::create([
             'user_id' => $user->id,
-            'channel' => $channel,
+            'channel' => 'email',
             'destination' => $destination,
             'otp_hash' => $otpHash,
             'expires_at' => now()->addMinutes(10),
@@ -81,8 +68,8 @@ class OtpService
 
         return [
             'success' => true,
-            'message' => "Verification code sent to " . $this->maskDestination($channel, $destination),
-            'destination_masked' => $this->maskDestination($channel, $destination),
+            'message' => "Verification code sent to " . $this->maskDestination('email', $destination),
+            'destination_masked' => $this->maskDestination('email', $destination),
             'expires_at' => $verification->expires_at->toIso8601String(),
             'cooldown_seconds' => 30,
         ];
@@ -94,7 +81,7 @@ class OtpService
     public function verifyOtp(User $user, string $channel, string $otpInput): array
     {
         $verification = OtpVerification::where('user_id', $user->id)
-            ->where('channel', $channel)
+            ->where('channel', 'email')
             ->whereNull('verified_at')
             ->latest()
             ->first();
@@ -102,19 +89,20 @@ class OtpService
         if (!$verification) {
             return [
                 'success' => false,
-                'message' => 'No active OTP verification session found. Please request a new code.',
+                'message' => 'No active verification code found. Please request a new one.',
             ];
         }
 
-        // Check Expiry (10 mins)
+        // Check Expiry (10 minutes)
         if ($verification->expires_at->isPast()) {
+            $verification->delete();
             return [
                 'success' => false,
-                'message' => 'The verification code has expired. Please request a new code.',
+                'message' => 'Verification code has expired. Please request a new one.',
             ];
         }
 
-        // Check Attempt Limits (5 max attempts)
+        // Check Max Attempts (5 attempts)
         if ($verification->attempts >= $verification->max_attempts) {
             $verification->delete();
             return [
@@ -152,7 +140,7 @@ class OtpService
 
         return [
             'success' => true,
-            'message' => ucfirst($channel) . ' verified successfully.',
+            'message' => 'Email verified successfully.',
         ];
     }
 
@@ -164,7 +152,6 @@ class OtpService
         try {
             Log::info("EMAIL_OTP_DISPATCH_INITIATED", ['destination' => $email]);
 
-            // Synchronous delivery via configured transactional mailer (SMTP/SES/Postmark/etc.)
             Mail::to($email)->send(new OtpVerificationMail($otp));
             
             Log::info("EMAIL_OTP_DISPATCH_SUCCESS", ['destination' => $email]);
@@ -174,8 +161,6 @@ class OtpService
             Log::error("EMAIL_OTP_DELIVERY_FAILURE: {$errorMsg}", [
                 'destination' => $email,
                 'mailer' => config('mail.default'),
-                'host' => config('mail.mailers.smtp.host'),
-                'port' => config('mail.mailers.smtp.port'),
             ]);
 
             return false;
@@ -183,20 +168,14 @@ class OtpService
     }
 
     /**
-     * Mask destination email or phone
+     * Mask destination email
      */
     public function maskDestination(string $channel, string $destination): string
     {
-        if ($channel === 'email') {
-            $parts = explode('@', $destination);
-            $name = $parts[0];
-            $domain = $parts[1] ?? 'example.com';
-            $maskedName = substr($name, 0, 2) . str_repeat('*', max(strlen($name) - 2, 3));
-            return $maskedName . '@' . $domain;
-        } else {
-            $clean = preg_replace('/[^0-9]/', '', $destination);
-            $last4 = substr($clean, -4);
-            return '+91 ******' . $last4;
-        }
+        $parts = explode('@', $destination);
+        $name = $parts[0] ?? 'user';
+        $domain = $parts[1] ?? 'example.com';
+        $maskedName = substr($name, 0, 1) . '***';
+        return $maskedName . '@' . $domain;
     }
 }

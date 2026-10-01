@@ -343,6 +343,32 @@ export const AdminUsers: React.FC = () => {
     },
     { key: 'email', header: 'Email', render: (r) => <span className="font-mono text-xs text-neutral-700">{r.email}</span> },
     {
+      key: 'auth_provider',
+      header: 'Auth Provider',
+      render: (r) => {
+        const prov = r.auth_provider || r.provider || 'email_password';
+        if (prov === 'google') {
+          return (
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+              google
+            </span>
+          );
+        }
+        if (prov === 'phone') {
+          return (
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+              phone
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+            email_password
+          </span>
+        );
+      },
+    },
+    {
       key: 'firebase_uid',
       header: 'Firebase UID',
       render: (r) => {
@@ -370,8 +396,8 @@ export const AdminUsers: React.FC = () => {
     },
     {
       key: 'status',
-      header: 'Status',
-      render: (r) => <Badge variant={r.status === 'active' ? 'success' : 'error'}>{r.status || 'active'}</Badge>,
+      header: 'Account Status',
+      render: (r) => <Badge variant={r.status === 'active' ? 'success' : 'error'}>{r.account_status || r.status || 'active'}</Badge>,
     },
     {
       key: 'created_at',

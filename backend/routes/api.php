@@ -17,32 +17,35 @@ use App\Http\Controllers\GstAuditController;
 |--------------------------------------------------------------------------
 */
 
-// Authentication System (Signup Direct, Login with Email OTP, Password Reset)
+// Authentication System (Firebase Phone/Google/Email & Password, Login OTP, Password Reset)
 Route::prefix('auth')->group(function () {
-    // Signup (Name + Mobile + Email + Password -> Dual OTP -> Verify)
+    // Signup (Pre-validation & Phone Firebase ID Token Registration)
+    Route::post('/signup/validate', [AuthController::class, 'validateSignup']);
+    Route::post('/register/validate', [AuthController::class, 'validateSignup']);
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/signup', [AuthController::class, 'register']);
-    Route::post('/signup/verify', [AuthController::class, 'verifySignup']);
-    Route::post('/register/verify', [AuthController::class, 'verifySignup']);
-    Route::post('/signup/resend-email-otp', [AuthController::class, 'resendSignupEmailOtp']);
-    Route::post('/signup/resend-mobile-otp', [AuthController::class, 'resendSignupMobileOtp']);
 
-    // Login (Email or Mobile + Password -> Targeted Channel OTP Challenge)
+    // Login (Email -> SMTP Email OTP, Mobile -> Firebase Phone OTP)
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/login/verify-otp', [AuthController::class, 'verifyLoginOtp']);
     Route::post('/login/verify', [AuthController::class, 'verifyLoginOtp']);
     Route::post('/login/resend-otp', [AuthController::class, 'resendLoginOtp']);
     Route::post('/login/resend', [AuthController::class, 'resendLoginOtp']);
+    Route::post('/login/verify-mobile', [AuthController::class, 'verifyMobileLoginFirebase']);
+    Route::post('/login/verify-firebase', [AuthController::class, 'verifyMobileLoginFirebase']);
 
-    // Password Reset (Email-based verification)
+    // Google Auth & Profile Completion
+    Route::post('/google', [AuthController::class, 'loginWithFirebase']);
+    Route::post('/google/firebase', [AuthController::class, 'loginWithFirebase']);
+    Route::post('/google/verify', [AuthController::class, 'loginWithFirebase']);
+    Route::post('/check-mobile', [AuthController::class, 'checkMobileAvailability']);
+    Route::post('/google/complete-signup', [AuthController::class, 'completeGoogleSignup']);
+
+    // Password Reset (Email-based verification via SMTP)
     Route::post('/forgot-password', [AuthController::class, 'forgotPasswordRequest']);
     Route::post('/forgot-password/request', [AuthController::class, 'forgotPasswordRequest']);
     Route::post('/reset-password', [AuthController::class, 'forgotPasswordReset']);
     Route::post('/forgot-password/reset', [AuthController::class, 'forgotPasswordReset']);
-
-    // Legacy / Google Auth compatibility
-    Route::post('/google', [AuthController::class, 'loginWithFirebase']);
-    Route::post('/google/firebase', [AuthController::class, 'loginWithFirebase']);
 
     // Authenticated User
     Route::get('/user', [AuthController::class, 'user']);

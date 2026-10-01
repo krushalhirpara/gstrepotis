@@ -252,7 +252,7 @@ class AdminController extends Controller
             $query->orderBy('id', 'desc');
         }
 
-        $selectColumns = ['id', 'name', 'email', 'mobile', 'user_type', 'is_admin', 'credits', 'status', 'created_at'];
+        $selectColumns = ['id', 'name', 'email', 'mobile', 'user_type', 'is_admin', 'credits', 'status', 'account_status', 'provider', 'auth_provider', 'created_at'];
         if (Schema::hasColumn('users', 'firebase_uid')) {
             $selectColumns[] = 'firebase_uid';
         }
@@ -265,22 +265,32 @@ class AdminController extends Controller
         if (Schema::hasColumn('users', 'mobile_verified_at')) {
             $selectColumns[] = 'mobile_verified_at';
         }
+        if (Schema::hasColumn('users', 'email_verified_at')) {
+            $selectColumns[] = 'email_verified_at';
+        }
 
         $users = $query->select($selectColumns)->get()->map(function ($u) {
             $firebaseUid = $u->firebase_uid ?? ($u->google_id ?? null);
+            $authProvider = $u->auth_provider ?? ($u->provider ?? 'email_password');
+            if ($authProvider === 'email') $authProvider = 'email_password';
+
             return [
                 'id' => $u->id,
                 'firebase_uid' => $firebaseUid,
                 'google_id' => $u->google_id ?? $firebaseUid,
                 'name' => $u->name,
+                'full_name' => $u->name,
                 'email' => $u->email,
                 'mobile' => $u->mobile,
+                'auth_provider' => $authProvider,
                 'mobile_verified_at' => $u->mobile_verified_at ?? null,
+                'email_verified_at' => $u->email_verified_at ?? null,
                 'user_type' => $u->user_type ?? 'CA',
                 'role' => $u->is_admin ? 'Admin' : ($u->user_type ?? 'User'),
                 'is_admin' => (bool) $u->is_admin,
                 'credits' => $u->credits ?? 50,
                 'status' => $u->status ?? 'active',
+                'account_status' => $u->account_status ?? ($u->status ?? 'active'),
                 'created_at' => $u->created_at,
                 'last_login_at' => $u->last_login_at ?? null,
             ];
@@ -330,6 +340,9 @@ class AdminController extends Controller
                 ->first();
         }
 
+        $authProvider = $user->auth_provider ?? ($user->provider ?? 'email_password');
+        if ($authProvider === 'email') $authProvider = 'email_password';
+
         return response()->json([
             'status' => 'success',
             'user' => [
@@ -337,17 +350,21 @@ class AdminController extends Controller
                 'firebase_uid' => $user->firebase_uid ?? $user->google_id,
                 'google_id' => $user->google_id ?? $user->firebase_uid,
                 'name' => $user->name,
+                'full_name' => $user->name,
                 'email' => $user->email,
                 'mobile' => $user->mobile,
+                'auth_provider' => $authProvider,
                 'avatar' => $user->avatar,
                 'user_type' => $user->user_type ?? 'CA',
                 'role' => $user->is_admin ? 'Admin' : ($user->user_type ?? 'User'),
                 'is_admin' => (bool) $user->is_admin,
                 'status' => $user->status ?? 'active',
+                'account_status' => $user->account_status ?? ($user->status ?? 'active'),
                 'credits' => $user->credits ?? 50,
                 'created_at' => $user->created_at ? $user->created_at->toIso8601String() : null,
                 'last_login_at' => $user->last_login_at ? $user->last_login_at->toIso8601String() : null,
                 'email_verified_at' => $user->email_verified_at ? $user->email_verified_at->toIso8601String() : null,
+                'mobile_verified_at' => $user->mobile_verified_at ? $user->mobile_verified_at->toIso8601String() : null,
                 'metrics' => [
                     'clients_count' => $clientsCount,
                     'bank_statements_count' => $bankCount,

@@ -16,17 +16,24 @@ import {
   RotateCw,
 } from 'lucide-react';
 import {
-  signup,
-  verifySignup,
-  resendSignupEmailOtp,
-  resendSignupMobileOtp,
+  validateSignup,
+  signupWithFirebase,
   loginWithCredentials,
-  verifyLoginOtp,
-  resendLoginOtp,
+  verifyLoginEmailOtp,
+  resendLoginEmailOtp,
+  verifyLoginMobileFirebase,
+  verifyGoogleToken,
   requestPasswordReset,
   resetPasswordWithOtp,
 } from '../../services/authService';
+import {
+  sendFirebaseSmsOtp,
+  confirmFirebasePhoneOtp,
+  signInWithGooglePopup,
+  mapFirebaseError,
+} from '../../services/firebase';
 import { parse10DigitIndianMobile } from '../../utils/phone';
+import type { ConfirmationResult } from 'firebase/auth';
 
 /**
  * Format seconds into mm:ss format (e.g. 59 -> "00:59")
@@ -122,8 +129,32 @@ const OtpBoxGroup: React.FC<OtpBoxProps> = ({
   );
 };
 
+/**
+ * Google SVG Icon
+ */
+const GoogleIcon = () => (
+  <svg className="w-4 h-4 mr-2.5" viewBox="0 0 24 24">
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+    />
+  </svg>
+);
+
 /* ====================================================================
-   SIGN IN PAGE (EMAIL / MOBILE + PASSWORD -> TARGETED CHANNEL OTP)
+   SIGN IN PAGE (EMAIL OR MOBILE + PASSWORD -> DUAL-CHANNEL OTP VERIFICATION)
    ==================================================================== */
 export const SignInPage: React.FC = () => {
   const navigate = useNavigate();
@@ -135,15 +166,18 @@ export const SignInPage: React.FC = () => {
 
   // Step 2 OTP states
   const [isOtpStep, setIsOtpStep] = useState(false);
+  const [otpChannel, setOtpChannel] = useState<'email' | 'mobile'>('email');
   const [challengeId, setChallengeId] = useState('');
-  const [channel, setChannel] = useState<'email' | 'sms'>('email');
+  const [registeredMobile, setRegisteredMobile] = useState('');
   const [destinationMasked, setDestinationMasked] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const [cooldown, setCooldown] = useState(60);
   const [resending, setResending] = useState(false);
 
   // Status & errors
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const [successNotice, setSuccessNotice] = useState('');
 
@@ -155,44 +189,12 @@ export const SignInPage: React.FC = () => {
     }
   }, [navigate]);
 
-  // Restore active login challenge on refresh if present
-  useEffect(() => {
-    try {
-      const savedChallenge = sessionStorage.getItem('gst_login_challenge');
-      if (savedChallenge) {
-        const parsed = JSON.parse(savedChallenge);
-        if (parsed.challenge_id) {
-          setChallengeId(parsed.challenge_id);
-          setChannel(parsed.channel || 'email');
-          setDestinationMasked(parsed.destination_masked || '');
-          setCooldown(parsed.cooldown || 60);
-          setIsOtpStep(true);
-        }
-      }
-    } catch {
-      sessionStorage.removeItem('gst_login_challenge');
-    }
-  }, []);
-
   // Cooldown countdown timer for resend OTP
   useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
     if (isOtpStep && cooldown > 0) {
       timer = setInterval(() => {
-        setCooldown((prev) => {
-          const next = prev - 1;
-          try {
-            const saved = sessionStorage.getItem('gst_login_challenge');
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              parsed.cooldown = next;
-              sessionStorage.setItem('gst_login_challenge', JSON.stringify(parsed));
-            }
-          } catch {
-            // ignore
-          }
-          return next;
-        });
+        setCooldown((prev) => (prev > 0 ? prev - 1 : 0));
       }, 1000);
     }
     return () => {
@@ -200,7 +202,7 @@ export const SignInPage: React.FC = () => {
     };
   }, [isOtpStep, cooldown]);
 
-  // Step 1 Submit: Validate credentials & request targeted OTP
+  // Step 1 Submit: Validate credentials with backend
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!login.trim() || !password || isLoading) return;
@@ -215,28 +217,35 @@ export const SignInPage: React.FC = () => {
         password,
       });
 
-      setIsLoading(false);
-
-      if (res.requires_otp && res.challenge_id) {
-        const selectedChannel = res.channel || (login.includes('@') ? 'email' : 'sms');
-        const masked = res.destination_masked || res.email_masked || 'your registered contact';
-
+      if (res.requires_otp && res.channel === 'email') {
+        // EMAIL FLOW: Email OTP already dispatched by backend SMTP
+        setIsLoading(false);
+        setOtpChannel('email');
         setChallengeId(res.challenge_id);
-        setChannel(selectedChannel);
-        setDestinationMasked(masked);
+        setDestinationMasked(res.destination_masked || res.email_masked || 'your registered email');
         setCooldown(res.cooldown_seconds || 60);
         setIsOtpStep(true);
         setOtpDigits(['', '', '', '', '', '']);
+      } else if (res.requires_otp && res.channel === 'mobile') {
+        // MOBILE FLOW: Trigger real Firebase Phone Auth to send 6-digit SMS OTP
+        const targetMobile = res.mobile || login.trim();
+        setRegisteredMobile(targetMobile);
+        setChallengeId(res.challenge_id);
+        setOtpChannel('mobile');
+        setDestinationMasked(res.destination_masked || res.mobile_masked || targetMobile);
 
-        sessionStorage.setItem(
-          'gst_login_challenge',
-          JSON.stringify({
-            challenge_id: res.challenge_id,
-            channel: selectedChannel,
-            destination_masked: masked,
-            cooldown: res.cooldown_seconds || 60,
-          })
-        );
+        try {
+          const confirmRes = await sendFirebaseSmsOtp(targetMobile, 'login-recaptcha-container');
+          setConfirmationResult(confirmRes);
+          setIsLoading(false);
+          setCooldown(60);
+          setIsOtpStep(true);
+          setOtpDigits(['', '', '', '', '', '']);
+        } catch (fbErr: any) {
+          setIsLoading(false);
+          console.error('Firebase SMS OTP send error:', fbErr);
+          setError(mapFirebaseError(fbErr));
+        }
       }
     } catch (err: any) {
       setIsLoading(false);
@@ -261,20 +270,39 @@ export const SignInPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await verifyLoginOtp({
-        challenge_id: challengeId,
-        otp: fullOtp,
-      });
+      if (otpChannel === 'email') {
+        // Verify 6-digit Email OTP via backend
+        await verifyLoginEmailOtp({
+          challenge_id: challengeId,
+          otp: fullOtp,
+        });
 
-      sessionStorage.removeItem('gst_login_challenge');
-      setIsLoading(false);
-      navigate('/welcome', { replace: true });
+        setIsLoading(false);
+        navigate('/welcome', { replace: true });
+      } else {
+        // Verify Mobile Phone OTP via Firebase
+        if (!confirmationResult) {
+          throw new Error('Verification session expired. Please sign in again.');
+        }
+
+        const fbRes = await confirmFirebasePhoneOtp(confirmationResult, fullOtp);
+
+        // Submit verified Firebase ID token to backend
+        await verifyLoginMobileFirebase({
+          id_token: fbRes.idToken,
+          mobile: registeredMobile,
+          challenge_id: challengeId,
+        });
+
+        setIsLoading(false);
+        navigate('/welcome', { replace: true });
+      }
     } catch (err: any) {
       setIsLoading(false);
       console.error('OTP verification error:', err);
       const msg =
         err?.response?.data?.message ||
-        err?.response?.data?.errors?.otp?.[0] ||
+        mapFirebaseError(err) ||
         err?.message ||
         'Invalid OTP. Please check and try again.';
       setError(msg);
@@ -289,39 +317,76 @@ export const SignInPage: React.FC = () => {
     setResending(true);
 
     try {
-      const res = await resendLoginOtp({
-        challenge_id: challengeId,
-      });
-      setResending(false);
-      const newCooldown = res.cooldown_seconds || 60;
-      setCooldown(newCooldown);
-      setSuccessNotice(
-        channel === 'email'
-          ? 'A new verification code has been sent to your registered email.'
-          : 'A new verification code has been sent to your registered mobile number.'
-      );
-      setOtpDigits(['', '', '', '', '', '']);
+      if (otpChannel === 'email') {
+        const res = await resendLoginEmailOtp({ challenge_id: challengeId });
+        setResending(false);
+        setCooldown(res.cooldown_seconds || 60);
+        setSuccessNotice('A new verification code has been sent to your registered email.');
+        setOtpDigits(['', '', '', '', '', '']);
+      } else {
+        const confirmRes = await sendFirebaseSmsOtp(registeredMobile, 'login-recaptcha-container');
+        setConfirmationResult(confirmRes);
+        setResending(false);
+        setCooldown(60);
+        setSuccessNotice('A new verification code has been sent to your registered mobile number.');
+        setOtpDigits(['', '', '', '', '', '']);
+      }
     } catch (err: any) {
       setResending(false);
       console.error('Resend OTP error:', err);
       const msg =
         err?.response?.data?.message ||
-        err?.message ||
+        mapFirebaseError(err) ||
         'Please wait before requesting another OTP.';
       setError(msg);
     }
   };
 
+  // Google Sign-in handler
+  const handleGoogleSignIn = async () => {
+    if (isLoading || isGoogleLoading) return;
+    setError('');
+    setIsGoogleLoading(true);
+
+    try {
+      const { idToken, user } = await signInWithGooglePopup();
+      const res = await verifyGoogleToken({ id_token: idToken });
+
+      setIsGoogleLoading(false);
+
+      if (res.status === 'success') {
+        navigate('/welcome', { replace: true });
+      } else if (res.status === 'profile_incomplete') {
+        // Save pending Google user profile info and redirect to profile completion
+        const googleUserData = res.google_user || {
+          uid: user.uid,
+          email: user.email || '',
+          name: user.displayName || '',
+          picture: user.photoURL || null,
+        };
+        sessionStorage.setItem('gst_google_user', JSON.stringify(googleUserData));
+        navigate('/complete-profile', { replace: true, state: { google_user: googleUserData } });
+      }
+    } catch (err: any) {
+      setIsGoogleLoading(false);
+      console.error('Google Sign-in error:', err);
+      setError(mapFirebaseError(err));
+    }
+  };
+
   const handleBackToLogin = () => {
-    sessionStorage.removeItem('gst_login_challenge');
     setIsOtpStep(false);
     setChallengeId('');
+    setConfirmationResult(null);
     setError('');
     setSuccessNotice('');
   };
 
   return (
     <div className="bg-[#F8F9FA] min-h-[82vh] flex items-center justify-center py-16 px-4">
+      {/* Invisible container for Firebase Phone reCAPTCHA */}
+      <div id="login-recaptcha-container"></div>
+
       <Card className="w-full max-w-md p-8 bg-white shadow-xl border border-[#E5E7EB] rounded-2xl">
         {/* Header / Brand */}
         <div className="text-center mb-7">
@@ -331,11 +396,15 @@ export const SignInPage: React.FC = () => {
             className="h-10 w-auto object-contain mx-auto mb-3.5"
           />
           <h2 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
-            {isOtpStep ? 'Verify Login' : 'Sign In'}
+            {isOtpStep
+              ? otpChannel === 'email'
+                ? 'Verify Your Email'
+                : 'Verify Your Mobile Number'
+              : 'Sign In'}
           </h2>
           <p className="text-xs text-[#64748B] mt-1.5 font-medium">
             {isOtpStep
-              ? channel === 'email'
+              ? otpChannel === 'email'
                 ? "We've sent a 6-digit OTP to your registered email."
                 : "We've sent a 6-digit OTP to your registered mobile number."
               : 'Access your Bank Statement Converter & GSTR-1 filings'}
@@ -360,106 +429,134 @@ export const SignInPage: React.FC = () => {
 
         {/* STEP 1: EMAIL/MOBILE + PASSWORD FORM */}
         {!isOtpStep ? (
-          <form onSubmit={handleCredentialsSubmit} className="space-y-4">
-            {/* Email / Mobile Field */}
-            <div>
-              <label htmlFor="login-input" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-                Email ID / Mobile Number <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <UserIcon className="w-4 h-4" />
-                </div>
-                <input
-                  id="login-input"
-                  type="text"
-                  value={login}
-                  onChange={(e) => {
-                    setLogin(e.target.value);
-                    if (error) setError('');
-                  }}
-                  placeholder="Enter Email or Mobile Number"
-                  required
-                  disabled={isLoading}
-                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0F172A] focus:ring-1 focus:ring-[#0F172A] transition-colors"
-                />
+          <div className="space-y-4">
+            {/* Google Sign In Button */}
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading || isGoogleLoading}
+              className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-[#CBD5E1] text-[#1E293B] font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center"
+            >
+              {isGoogleLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <GoogleIcon />
+              )}
+              <span>Continue with Google</span>
+            </button>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-3 text-slate-400 font-bold tracking-wider">
+                  OR SIGN IN WITH PASSWORD
+                </span>
               </div>
             </div>
 
-            {/* Password Field */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="login-password" className="block text-xs font-bold text-[#1E293B]">
-                  Password <span className="text-red-500">*</span>
+            <form onSubmit={handleCredentialsSubmit} className="space-y-4">
+              {/* Email / Mobile Field */}
+              <div>
+                <label htmlFor="login-input" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                  Email ID / Mobile Number <span className="text-red-500">*</span>
                 </label>
-                <Link
-                  to="/forgot-password"
-                  className="text-xs font-bold text-[#0F172A] hover:underline"
-                >
-                  Forgot?
-                </Link>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="login-input"
+                    type="text"
+                    value={login}
+                    onChange={(e) => {
+                      setLogin(e.target.value);
+                      if (error) setError('');
+                    }}
+                    placeholder="Enter Email or 10-digit Mobile"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0F172A] focus:ring-1 focus:ring-[#0F172A] transition-colors"
+                  />
                 </div>
-                <input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (error) setError('');
-                  }}
-                  placeholder="Enter your password"
-                  required
-                  disabled={isLoading}
-                  className="w-full pl-10 pr-11 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0F172A] focus:ring-1 focus:ring-[#0F172A] transition-colors"
-                />
+              </div>
+
+              {/* Password Field */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="login-password" className="block text-xs font-bold text-[#1E293B]">
+                    Password <span className="text-red-500">*</span>
+                  </label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs font-bold text-[#0F172A] hover:underline"
+                  >
+                    Forgot?
+                  </Link>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError('');
+                    }}
+                    placeholder="Enter your password"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className="w-full pl-10 pr-11 py-2.5 text-sm bg-white border border-[#CBD5E1] rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0F172A] focus:ring-1 focus:ring-[#0F172A] transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="pt-2">
                 <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
-                  tabIndex={-1}
+                  type="submit"
+                  disabled={isLoading || isGoogleLoading || !login.trim() || !password}
+                  className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Verifying Credentials...</span>
+                    </>
+                  ) : (
+                    <span>Sign In</span>
+                  )}
                 </button>
               </div>
-            </div>
 
-            {/* Submit Button */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isLoading || !login.trim() || !password}
-                className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Verifying Credentials...</span>
-                  </>
-                ) : (
-                  <span>Login</span>
-                )}
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600 text-center pt-2">
-              Don't have an account?{' '}
-              <Link to="/sign-up" className="font-extrabold text-[#0F172A] hover:underline uppercase tracking-wide">
-                CREATE
-              </Link>
-            </p>
-          </form>
+              <p className="text-xs text-slate-600 text-center pt-2">
+                Don't have an account?{' '}
+                <Link to="/sign-up" className="font-extrabold text-[#0F172A] hover:underline uppercase tracking-wide">
+                  CREATE
+                </Link>
+              </p>
+            </form>
+          </div>
         ) : (
-          /* STEP 2: TARGETED LOGIN OTP VERIFICATION SCREEN */
+          /* STEP 2: OTP VERIFICATION SCREEN */
           <form onSubmit={handleVerifyOtp} className="space-y-5">
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-1">
               <p className="text-xs text-slate-600">
-                {channel === 'email'
-                  ? "We've sent a 6-digit OTP to your registered email:"
-                  : "We've sent a 6-digit OTP to your registered mobile number:"}
+                {otpChannel === 'email'
+                  ? "We've sent a 6-digit OTP to:"
+                  : "We've sent a 6-digit OTP to:"}
               </p>
               <p className="text-base font-black text-[#0F172A] font-mono tracking-wider">
                 {destinationMasked}
@@ -522,9 +619,7 @@ export const SignInPage: React.FC = () => {
                   disabled={resending || isLoading}
                   className="font-extrabold text-[#0F172A] hover:underline cursor-pointer inline-flex items-center gap-1"
                 >
-                  {resending ? (
-                    <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : null}
+                  {resending ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : null}
                   Resend OTP
                 </button>
               )}
@@ -565,7 +660,7 @@ export const SignInPage: React.FC = () => {
 };
 
 /* ====================================================================
-   SIGN UP PAGE (DUAL OTP VERIFICATION: EMAIL OTP + MOBILE OTP)
+   SIGN UP PAGE (MOBILE FIREBASE OTP VERIFICATION ONLY)
    ==================================================================== */
 export const SignUpPage: React.FC = () => {
   const navigate = useNavigate();
@@ -579,18 +674,13 @@ export const SignUpPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Step 2 Verification states
+  // Step 2 Mobile Verification states
   const [isOtpStep, setIsOtpStep] = useState(false);
-  const [signupToken, setSignupToken] = useState('');
-  const [maskedEmail, setMaskedEmail] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [maskedMobile, setMaskedMobile] = useState('');
-
-  const [emailOtpDigits, setEmailOtpDigits] = useState(['', '', '', '', '', '']);
+  const [canonicalMobile, setCanonicalMobile] = useState('');
   const [mobileOtpDigits, setMobileOtpDigits] = useState(['', '', '', '', '', '']);
-
-  const [emailCooldown, setEmailCooldown] = useState(60);
   const [mobileCooldown, setMobileCooldown] = useState(60);
-  const [resendingEmail, setResendingEmail] = useState(false);
   const [resendingMobile, setResendingMobile] = useState(false);
 
   // Interaction tracking
@@ -603,10 +693,10 @@ export const SignUpPage: React.FC = () => {
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const [successNotice, setSuccessNotice] = useState('');
 
-  // Redirect if already logged in
   // Redirect if already logged in
   useEffect(() => {
     const token = localStorage.getItem('gst_token');
@@ -615,24 +705,18 @@ export const SignUpPage: React.FC = () => {
     }
   }, [navigate]);
 
-  // Clean stale signup challenge on initial mount
-  useEffect(() => {
-    sessionStorage.removeItem('gst_signup_challenge');
-  }, []);
-
-  // Cooldown countdown timers for Email & Mobile resend
+  // Cooldown countdown timer for Mobile resend
   useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
-    if (isOtpStep && (emailCooldown > 0 || mobileCooldown > 0)) {
+    if (isOtpStep && mobileCooldown > 0) {
       timer = setInterval(() => {
-        setEmailCooldown((prev) => (prev > 0 ? prev - 1 : 0));
         setMobileCooldown((prev) => (prev > 0 ? prev - 1 : 0));
       }, 1000);
     }
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isOtpStep, emailCooldown, mobileCooldown]);
+  }, [isOtpStep, mobileCooldown]);
 
   // Validations
   const trimmedName = name.trim();
@@ -646,7 +730,7 @@ export const SignUpPage: React.FC = () => {
   const isFormValid =
     isNameValid && isMobileValid && isEmailValid && isPasswordValid && isConfirmValid;
 
-  // Step 1: Submit signup form & request Dual OTPs
+  // Step 1: Pre-validate & start Firebase Phone Authentication
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched({
@@ -657,80 +741,62 @@ export const SignUpPage: React.FC = () => {
       confirm: true,
     });
 
-    if (!isFormValid || isLoading) return;
+    if (!isFormValid || isLoading || isGoogleLoading) return;
 
     setError('');
     setSuccessNotice('');
     setIsLoading(true);
-    sessionStorage.removeItem('gst_signup_challenge');
 
     const submittedEmail = email.trim().toLowerCase();
-    const submittedMobile = mobileParsed.canonical;
+    const normalizedNumber = mobileParsed.canonical;
 
     try {
-      const res = await signup({
+      // 1. Validate form fields & duplicate email/mobile on backend
+      await validateSignup({
         name: trimmedName,
         email: submittedEmail,
-        mobile: submittedMobile,
+        mobile: normalizedNumber,
         password,
         password_confirmation: passwordConfirmation,
       });
 
+      // 2. Start Firebase Phone Authentication -> sends REAL 6-digit SMS OTP to exact mobile
+      const confirmRes = await sendFirebaseSmsOtp(normalizedNumber, 'signup-recaptcha-container');
+
       setIsLoading(false);
-
-      if (res && res.requires_verification && res.signup_token) {
-        const maskedE = res.email_masked || (submittedEmail.length > 3 ? submittedEmail[0] + '***@' + (submittedEmail.split('@')[1] || '') : submittedEmail);
-        const maskedM = res.mobile_masked || ('******' + mobileParsed.raw10.slice(-4));
-
-        setSignupToken(res.signup_token);
-        setMaskedEmail(maskedE);
-        setMaskedMobile(maskedM);
-        setEmailCooldown(res.cooldown_seconds || 60);
-        setMobileCooldown(res.cooldown_seconds || 60);
-        setIsOtpStep(true);
-        setEmailOtpDigits(['', '', '', '', '', '']);
-        setMobileOtpDigits(['', '', '', '', '', '']);
-
-        sessionStorage.setItem(
-          'gst_signup_challenge',
-          JSON.stringify({
-            signup_token: res.signup_token,
-            email_masked: maskedE,
-            mobile_masked: maskedM,
-            email_cooldown: res.cooldown_seconds || 60,
-            mobile_cooldown: res.cooldown_seconds || 60,
-          })
-        );
-      }
+      setConfirmationResult(confirmRes);
+      setCanonicalMobile(normalizedNumber);
+      setMaskedMobile(`+91 ******${normalizedNumber.slice(-4)}`);
+      setMobileCooldown(60);
+      setIsOtpStep(true);
+      setMobileOtpDigits(['', '', '', '', '', '']);
     } catch (err: any) {
       setIsLoading(false);
-      setIsOtpStep(false);
-      setSignupToken('');
-      setMaskedEmail('');
-      setMaskedMobile('');
-      sessionStorage.removeItem('gst_signup_challenge');
-
-      console.error('Signup error:', err);
+      console.error('Signup validation / SMS send error:', err);
       const msg =
         err?.response?.data?.message ||
         err?.response?.data?.errors?.mobile?.[0] ||
         err?.response?.data?.errors?.email?.[0] ||
         err?.response?.data?.errors?.password?.[0] ||
         err?.response?.data?.errors?.name?.[0] ||
-        err?.message ||
+        mapFirebaseError(err) ||
         'Could not complete registration. Please check your inputs.';
       setError(msg);
     }
   };
 
-  // Step 2: Verify Dual OTPs & Activate Account
-  const handleVerifyDualOtp = async (e: React.FormEvent) => {
+  // Step 2: Verify Firebase Mobile OTP & Finalize Account Creation
+  const handleVerifyMobileOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const fullEmailOtp = emailOtpDigits.join('');
-    const fullMobileOtp = mobileOtpDigits.join('');
+    const fullOtp = mobileOtpDigits.join('');
 
-    if (fullEmailOtp.length !== 6 || fullMobileOtp.length !== 6 || isLoading) {
-      setError('Please enter both 6-digit verification codes (Email and Mobile).');
+    if (fullOtp.length !== 6 || isLoading) {
+      setError('Please enter the 6-digit mobile verification code.');
+      return;
+    }
+
+    if (!confirmationResult) {
+      setError('Registration verification session expired. Please sign up again.');
       return;
     }
 
@@ -739,49 +805,34 @@ export const SignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      await verifySignup({
-        signup_token: signupToken,
-        email_otp: fullEmailOtp,
-        mobile_otp: fullMobileOtp,
+      // 1. Confirm OTP with Firebase Phone Auth
+      const fbRes = await confirmFirebasePhoneOtp(confirmationResult, fullOtp);
+
+      // 2. Submit verified Firebase ID token to Laravel backend
+      await signupWithFirebase({
+        name: trimmedName,
+        email: email.trim().toLowerCase(),
+        mobile: canonicalMobile,
+        password,
+        password_confirmation: passwordConfirmation,
+        id_token: fbRes.idToken,
       });
 
-      sessionStorage.removeItem('gst_signup_challenge');
       setIsLoading(false);
       navigate('/welcome', { replace: true });
     } catch (err: any) {
       setIsLoading(false);
-      console.error('Dual OTP verification error:', err);
+      console.error('Mobile OTP verification error:', err);
       const msg =
         err?.response?.data?.message ||
-        err?.response?.data?.errors?.email_otp?.[0] ||
-        err?.response?.data?.errors?.mobile_otp?.[0] ||
-        err?.message ||
+        err?.response?.data?.errors?.mobile?.[0] ||
+        mapFirebaseError(err) ||
         'Invalid verification code. Please check and try again.';
       setError(msg);
     }
   };
 
-  // Resend Email OTP
-  const handleResendEmailOtp = async () => {
-    if (emailCooldown > 0 || resendingEmail || isLoading) return;
-
-    setError('');
-    setResendingEmail(true);
-
-    try {
-      const res = await resendSignupEmailOtp({ signup_token: signupToken });
-      setResendingEmail(false);
-      setEmailCooldown(res.cooldown_seconds || 60);
-      setSuccessNotice('A new verification code has been sent to your email.');
-      setEmailOtpDigits(['', '', '', '', '', '']);
-    } catch (err: any) {
-      setResendingEmail(false);
-      console.error('Resend email OTP error:', err);
-      setError(err?.response?.data?.message || err?.message || 'Please wait before requesting another OTP.');
-    }
-  };
-
-  // Resend Mobile OTP
+  // Resend Mobile SMS OTP
   const handleResendMobileOtp = async () => {
     if (mobileCooldown > 0 || resendingMobile || isLoading) return;
 
@@ -789,28 +840,62 @@ export const SignUpPage: React.FC = () => {
     setResendingMobile(true);
 
     try {
-      const res = await resendSignupMobileOtp({ signup_token: signupToken });
+      const confirmRes = await sendFirebaseSmsOtp(canonicalMobile, 'signup-recaptcha-container');
+      setConfirmationResult(confirmRes);
       setResendingMobile(false);
-      setMobileCooldown(res.cooldown_seconds || 60);
+      setMobileCooldown(60);
       setSuccessNotice('A new verification code has been sent to your mobile number.');
       setMobileOtpDigits(['', '', '', '', '', '']);
     } catch (err: any) {
       setResendingMobile(false);
-      console.error('Resend mobile OTP error:', err);
-      setError(err?.response?.data?.message || err?.message || 'Please wait before requesting another OTP.');
+      console.error('Resend SMS OTP error:', err);
+      setError(mapFirebaseError(err) || 'Please wait before requesting another OTP.');
+    }
+  };
+
+  // Google Sign-up handler
+  const handleGoogleSignUp = async () => {
+    if (isLoading || isGoogleLoading) return;
+    setError('');
+    setIsGoogleLoading(true);
+
+    try {
+      const { idToken, user } = await signInWithGooglePopup();
+      const res = await verifyGoogleToken({ id_token: idToken });
+
+      setIsGoogleLoading(false);
+
+      if (res.status === 'success') {
+        navigate('/welcome', { replace: true });
+      } else if (res.status === 'profile_incomplete') {
+        const googleUserData = res.google_user || {
+          uid: user.uid,
+          email: user.email || '',
+          name: user.displayName || '',
+          picture: user.photoURL || null,
+        };
+        sessionStorage.setItem('gst_google_user', JSON.stringify(googleUserData));
+        navigate('/complete-profile', { replace: true, state: { google_user: googleUserData } });
+      }
+    } catch (err: any) {
+      setIsGoogleLoading(false);
+      console.error('Google Sign-up error:', err);
+      setError(mapFirebaseError(err));
     }
   };
 
   const handleBackToSignup = () => {
-    sessionStorage.removeItem('gst_signup_challenge');
     setIsOtpStep(false);
-    setSignupToken('');
+    setConfirmationResult(null);
     setError('');
     setSuccessNotice('');
   };
 
   return (
     <div className="bg-[#F8F9FA] min-h-[82vh] flex items-center justify-center py-16 px-4">
+      {/* Invisible container for Firebase Phone reCAPTCHA */}
+      <div id="signup-recaptcha-container"></div>
+
       <Card className="w-full max-w-md p-8 bg-white shadow-xl border border-[#E5E7EB] rounded-2xl">
         {/* Header / Brand */}
         <div className="text-center mb-6">
@@ -820,11 +905,11 @@ export const SignUpPage: React.FC = () => {
             className="h-10 w-auto object-contain mx-auto mb-3.5"
           />
           <h2 className="text-2xl sm:text-3xl font-black text-[#0F172A] tracking-tight">
-            {isOtpStep ? 'Verify Your Account' : 'Sign Up'}
+            {isOtpStep ? 'Verify Your Mobile Number' : 'Sign Up'}
           </h2>
           <p className="text-xs text-[#64748B] mt-1.5 font-medium">
             {isOtpStep
-              ? 'Please verify both your email and mobile number to activate your account'
+              ? "We've sent a 6-digit OTP to your mobile number."
               : 'Create your account and start your automated GST workflows'}
           </p>
         </div>
@@ -847,243 +932,266 @@ export const SignUpPage: React.FC = () => {
 
         {/* STEP 1: SIGNUP FORM */}
         {!isOtpStep ? (
-          <form onSubmit={handleSignUpSubmit} className="space-y-4">
-            {/* Full Name Field */}
-            <div>
-              <label htmlFor="signup-name" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-                Full Name <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <UserIcon className="w-4 h-4" />
-                </div>
-                <input
-                  id="signup-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    if (error) setError('');
-                  }}
-                  onBlur={() => setTouched({ ...touched, name: true })}
-                  placeholder="Enter your full name"
-                  required
-                  disabled={isLoading}
-                  className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
-                    touched.name && !isNameValid
-                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-                />
-              </div>
-              {touched.name && !isNameValid && (
-                <p className="text-[11px] text-red-600 mt-1 font-medium">
-                  {trimmedName.length === 0
-                    ? 'Please enter your full name.'
-                    : 'Name must be between 2 and 100 characters.'}
-                </p>
+          <div className="space-y-4">
+            {/* Google Sign Up Button */}
+            <button
+              type="button"
+              onClick={handleGoogleSignUp}
+              disabled={isLoading || isGoogleLoading}
+              className="w-full py-2.5 px-4 bg-white hover:bg-slate-50 border border-[#CBD5E1] text-[#1E293B] font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 flex items-center justify-center"
+            >
+              {isGoogleLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <GoogleIcon />
               )}
-            </div>
+              <span>Continue with Google</span>
+            </button>
 
-            {/* Mobile Number Field */}
-            <div>
-              <label htmlFor="signup-mobile" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-                Mobile Number <span className="text-red-500">*</span>
-              </label>
-              <div className="relative flex rounded-xl shadow-sm">
-                <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#CBD5E1] bg-[#F8FAFC] text-slate-700 text-xs font-bold font-mono">
-                  <Phone className="w-3.5 h-3.5 mr-1 text-slate-400" />
-                  +91
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-3 text-slate-400 font-bold tracking-wider">
+                  OR SIGN UP WITH MOBILE & EMAIL
                 </span>
-                <input
-                  id="signup-mobile"
-                  type="tel"
-                  maxLength={10}
-                  value={mobile}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
-                    setMobile(cleaned);
-                    if (error) setError('');
-                  }}
-                  onBlur={() => setTouched({ ...touched, mobile: true })}
-                  placeholder="Enter 10-digit mobile number"
-                  required
-                  disabled={isLoading}
-                  className={`flex-1 min-w-0 block w-full px-3.5 py-2.5 text-sm bg-white border ${
-                    touched.mobile && !isMobileValid
-                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                  } rounded-r-xl placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors font-mono`}
-                />
               </div>
-              {touched.mobile && !isMobileValid && (
-                <p className="text-[11px] text-red-600 mt-1 font-medium">
-                  Please enter a valid 10-digit Indian mobile number (starts with 6, 7, 8, or 9).
-                </p>
-              )}
             </div>
 
-            {/* Email ID Field */}
-            <div>
-              <label htmlFor="signup-email" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-                Email ID <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="w-4 h-4" />
+            <form onSubmit={handleSignUpSubmit} className="space-y-4">
+              {/* Full Name Field */}
+              <div>
+                <label htmlFor="signup-name" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="signup-name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (error) setError('');
+                    }}
+                    onBlur={() => setTouched({ ...touched, name: true })}
+                    placeholder="Enter your full name"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
+                      touched.name && !isNameValid
+                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                        : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                    } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                  />
                 </div>
-                <input
-                  id="signup-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (error) setError('');
-                  }}
-                  onBlur={() => setTouched({ ...touched, email: true })}
-                  placeholder="Enter your email address"
-                  required
-                  disabled={isLoading}
-                  className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
-                    touched.email && !isEmailValid
-                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-                />
-              </div>
-              {touched.email && !isEmailValid && (
-                <p className="text-[11px] text-red-600 mt-1 font-medium">
-                  Please enter a valid email address.
-                </p>
-              )}
-            </div>
-
-            {/* Create Password Field */}
-            <div>
-              <label htmlFor="signup-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-                Create Password <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  id="signup-password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (error) setError('');
-                  }}
-                  onBlur={() => setTouched({ ...touched, password: true })}
-                  placeholder="Enter password (min. 8 characters)"
-                  required
-                  disabled={isLoading}
-                  className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
-                    touched.password && !isPasswordValid
-                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {touched.password && !isPasswordValid && (
-                <p className="text-[11px] text-red-600 mt-1 font-medium">
-                  Password must be at least 8 characters.
-                </p>
-              )}
-            </div>
-
-            {/* Confirm Password Field */}
-            <div>
-              <label htmlFor="signup-confirm-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
-                Confirm Password <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  id="signup-confirm-password"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={passwordConfirmation}
-                  onChange={(e) => {
-                    setPasswordConfirmation(e.target.value);
-                    if (error) setError('');
-                  }}
-                  onBlur={() => setTouched({ ...touched, confirm: true })}
-                  placeholder="Confirm your password"
-                  required
-                  disabled={isLoading}
-                  className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
-                    touched.confirm && !isConfirmValid
-                      ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
-                      : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
-                  } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
-                  tabIndex={-1}
-                >
-                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {touched.confirm && !isConfirmValid && (
-                <p className="text-[11px] text-red-600 mt-1 font-medium">
-                  Passwords do not match.
-                </p>
-              )}
-            </div>
-
-            {/* Sign Up Button */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isLoading || !isFormValid}
-                className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Sending Verification Codes...</span>
-                  </>
-                ) : (
-                  <span>Sign Up</span>
+                {touched.name && !isNameValid && (
+                  <p className="text-[11px] text-red-600 mt-1 font-medium">
+                    {trimmedName.length === 0
+                      ? 'Please enter your full name.'
+                      : 'Name must be between 2 and 100 characters.'}
+                  </p>
                 )}
-              </button>
-            </div>
+              </div>
 
-            <p className="text-xs text-slate-600 text-center pt-2">
-              Already have an account?{' '}
-              <Link to="/sign-in" className="font-extrabold text-[#0F172A] hover:underline uppercase tracking-wide">
-                LOGIN
-              </Link>
-            </p>
-          </form>
+              {/* Mobile Number Field */}
+              <div>
+                <label htmlFor="signup-mobile" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                  Mobile Number <span className="text-red-500">*</span>
+                </label>
+                <div className="relative flex rounded-xl shadow-sm">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#CBD5E1] bg-[#F8FAFC] text-slate-700 text-xs font-bold font-mono">
+                    <Phone className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                    +91
+                  </span>
+                  <input
+                    id="signup-mobile"
+                    type="tel"
+                    maxLength={10}
+                    value={mobile}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setMobile(cleaned);
+                      if (error) setError('');
+                    }}
+                    onBlur={() => setTouched({ ...touched, mobile: true })}
+                    placeholder="Enter 10-digit mobile number"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className={`flex-1 min-w-0 block w-full px-3.5 py-2.5 text-sm bg-white border ${
+                      touched.mobile && !isMobileValid
+                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                        : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                    } rounded-r-xl placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors font-mono`}
+                  />
+                </div>
+                {touched.mobile && !isMobileValid && (
+                  <p className="text-[11px] text-red-600 mt-1 font-medium">
+                    Please enter a valid 10-digit Indian mobile number (starts with 6, 7, 8, or 9).
+                  </p>
+                )}
+              </div>
+
+              {/* Email ID Field */}
+              <div>
+                <label htmlFor="signup-email" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                  Email ID <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="signup-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (error) setError('');
+                    }}
+                    onBlur={() => setTouched({ ...touched, email: true })}
+                    placeholder="Enter your email address"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className={`w-full pl-10 pr-4 py-2.5 text-sm bg-white border ${
+                      touched.email && !isEmailValid
+                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                        : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                    } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                  />
+                </div>
+                {touched.email && !isEmailValid && (
+                  <p className="text-[11px] text-red-600 mt-1 font-medium">
+                    Please enter a valid email address.
+                  </p>
+                )}
+              </div>
+
+              {/* Create Password Field */}
+              <div>
+                <label htmlFor="signup-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                  Create Password <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="signup-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError('');
+                    }}
+                    onBlur={() => setTouched({ ...touched, password: true })}
+                    placeholder="Enter password (min. 8 characters)"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
+                      touched.password && !isPasswordValid
+                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                        : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                    } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {touched.password && !isPasswordValid && (
+                  <p className="text-[11px] text-red-600 mt-1 font-medium">
+                    Password must be at least 8 characters.
+                  </p>
+                )}
+              </div>
+
+              {/* Confirm Password Field */}
+              <div>
+                <label htmlFor="signup-confirm-password" className="block text-xs font-bold text-[#1E293B] mb-1.5">
+                  Confirm Password <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="signup-confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={passwordConfirmation}
+                    onChange={(e) => {
+                      setPasswordConfirmation(e.target.value);
+                      if (error) setError('');
+                    }}
+                    onBlur={() => setTouched({ ...touched, confirm: true })}
+                    placeholder="Confirm your password"
+                    required
+                    disabled={isLoading || isGoogleLoading}
+                    className={`w-full pl-10 pr-11 py-2.5 text-sm bg-white border ${
+                      touched.confirm && !isConfirmValid
+                        ? 'border-red-400 focus:border-red-500 focus:ring-red-200'
+                        : 'border-[#CBD5E1] focus:border-[#0F172A] focus:ring-[#0F172A]'
+                    } rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 transition-colors`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-700 cursor-pointer focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {touched.confirm && !isConfirmValid && (
+                  <p className="text-[11px] text-red-600 mt-1 font-medium">
+                    Passwords do not match.
+                  </p>
+                )}
+              </div>
+
+              {/* Sign Up Button */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isLoading || isGoogleLoading || !isFormValid}
+                  className="w-full py-3 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Sending SMS Verification Code...</span>
+                    </>
+                  ) : (
+                    <span>Sign Up</span>
+                  )}
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 text-center pt-2">
+                Already have an account?{' '}
+                <Link to="/sign-in" className="font-extrabold text-[#0F172A] hover:underline uppercase tracking-wide">
+                  LOGIN
+                </Link>
+              </p>
+            </form>
+          </div>
         ) : (
-          /* STEP 2: DUAL OTP VERIFICATION SCREEN */
-          <form onSubmit={handleVerifyDualOtp} className="space-y-6">
+          /* STEP 2: MOBILE OTP VERIFICATION SCREEN */
+          <form onSubmit={handleVerifyMobileOtp} className="space-y-6">
             {/* Status overview banner */}
             <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs text-slate-700">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                 <span>
-                  Email OTP sent to <strong className="font-mono text-slate-900">{maskedEmail}</strong>
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span>
-                  Mobile OTP sent to <strong className="font-mono text-slate-900">{maskedMobile}</strong>
+                  We've sent a 6-digit OTP to:{' '}
+                  <strong className="font-mono text-slate-900">{maskedMobile}</strong>
                 </span>
               </div>
               <div className="text-center pt-1">
@@ -1092,64 +1200,20 @@ export const SignUpPage: React.FC = () => {
                   onClick={handleBackToSignup}
                   className="text-[11px] font-bold text-[#0F172A] hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
-                  <ArrowLeft className="w-3 h-3" /> Change registration details
+                  <ArrowLeft className="w-3 h-3" /> Change Mobile Number
                 </button>
               </div>
             </div>
 
-            {/* 1. EMAIL VERIFICATION SECTION */}
+            {/* MOBILE VERIFICATION SECTION */}
             <div className="space-y-2.5 p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-black text-[#0F172A] uppercase tracking-wide">
-                    Email Verification
+                    Verify Your Mobile Number
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    We've sent a 6-digit OTP to your email.
-                  </p>
-                </div>
-                <Mail className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <OtpBoxGroup
-                digits={emailOtpDigits}
-                onChange={(d) => {
-                  setEmailOtpDigits(d);
-                  if (error) setError('');
-                }}
-                disabled={isLoading}
-                autoFocusFirst={true}
-                idPrefix="email-otp"
-              />
-
-              <div className="flex items-center justify-end text-[11px] text-slate-600 pt-0.5">
-                {emailCooldown > 0 ? (
-                  <span className="font-mono font-bold text-slate-700">
-                    Resend Email OTP in {formatCooldown(emailCooldown)}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleResendEmailOtp}
-                    disabled={resendingEmail || isLoading}
-                    className="font-extrabold text-[#0F172A] hover:underline cursor-pointer inline-flex items-center gap-1"
-                  >
-                    {resendingEmail && <RotateCw className="w-3 h-3 animate-spin" />}
-                    Resend Email OTP
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* 2. MOBILE VERIFICATION SECTION */}
-            <div className="space-y-2.5 p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-black text-[#0F172A] uppercase tracking-wide">
-                    Mobile Verification
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    We've sent a 6-digit OTP to your mobile number.
+                    Enter the 6-digit SMS code received on your phone.
                   </p>
                 </div>
                 <Phone className="w-4 h-4 text-slate-400" />
@@ -1162,13 +1226,14 @@ export const SignUpPage: React.FC = () => {
                   if (error) setError('');
                 }}
                 disabled={isLoading}
-                idPrefix="mobile-otp"
+                autoFocusFirst={true}
+                idPrefix="mobile-signup-otp"
               />
 
               <div className="flex items-center justify-end text-[11px] text-slate-600 pt-0.5">
                 {mobileCooldown > 0 ? (
                   <span className="font-mono font-bold text-slate-700">
-                    Resend Mobile OTP in {formatCooldown(mobileCooldown)}
+                    Resend OTP in {formatCooldown(mobileCooldown)}
                   </span>
                 ) : (
                   <button
@@ -1177,8 +1242,8 @@ export const SignUpPage: React.FC = () => {
                     disabled={resendingMobile || isLoading}
                     className="font-extrabold text-[#0F172A] hover:underline cursor-pointer inline-flex items-center gap-1"
                   >
-                    {resendingMobile && <RotateCw className="w-3 h-3 animate-spin" />}
-                    Resend Mobile OTP
+                    {resendingMobile && <RotateCw className="w-3.5 h-3.5 animate-spin" />}
+                    Resend OTP
                   </button>
                 )}
               </div>
@@ -1188,20 +1253,16 @@ export const SignUpPage: React.FC = () => {
             <div className="pt-1">
               <button
                 type="submit"
-                disabled={
-                  isLoading ||
-                  emailOtpDigits.join('').length !== 6 ||
-                  mobileOtpDigits.join('').length !== 6
-                }
+                disabled={isLoading || mobileOtpDigits.join('').length !== 6}
                 className="w-full py-3.5 bg-[#0F172A] hover:bg-[#1E293B] text-white font-bold text-sm rounded-xl shadow-sm transition-all duration-150 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Verifying & Creating Account...</span>
+                    <span>Verifying Code & Activating Account...</span>
                   </>
                 ) : (
-                  <span>Verify & Create Account</span>
+                  <span>Verify OTP</span>
                 )}
               </button>
             </div>
@@ -1225,7 +1286,7 @@ export const SignUpPage: React.FC = () => {
 };
 
 /* ====================================================================
-   FORGOT PASSWORD PAGE (EMAIL OTP RESET FLOW)
+   FORGOT PASSWORD PAGE (EMAIL OTP RESET FLOW VIA SMTP)
    ==================================================================== */
 export const ForgotPasswordPage: React.FC = () => {
   const [login, setLogin] = useState('');

@@ -22,6 +22,7 @@ class User extends Authenticatable
         'google_id',
         'avatar',
         'provider',
+        'auth_provider',
         'api_token',
         'password',
         'mobile',

@@ -43,9 +43,9 @@ return new class extends Migration
                 $table->string('mobile', 30)->index();
                 $table->string('password_hash');
                 $table->string('email_otp_hash', 128);
-                $table->string('mobile_otp_hash', 128);
+                $table->string('mobile_otp_hash', 128)->nullable();
                 $table->timestamp('email_expires_at');
-                $table->timestamp('mobile_expires_at');
+                $table->timestamp('mobile_expires_at')->nullable();
                 $table->integer('email_attempts')->default(0);
                 $table->integer('mobile_attempts')->default(0);
                 $table->integer('max_attempts')->default(5);
@@ -57,7 +57,6 @@ return new class extends Migration
 
                 $table->index(['email', 'mobile']);
                 $table->index('email_expires_at');
-                $table->index('mobile_expires_at');
             });
         }
     }

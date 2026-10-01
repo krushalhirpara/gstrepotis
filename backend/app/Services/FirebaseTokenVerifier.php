@@ -109,10 +109,17 @@ class FirebaseTokenVerifier
             throw new Exception('Firebase ID token auth_time is in the future.');
         }
 
+        $firebaseClaim = (array) ($claims['firebase'] ?? []);
+        $identities = (array) ($firebaseClaim['identities'] ?? []);
+        $phoneClaim = $claims['phone_number'] ?? ($identities['phone'][0] ?? null);
+        $signInProvider = $firebaseClaim['sign_in_provider'] ?? null;
+
         return [
-            'uid' => $claims['sub'],
+            'uid' => (string) $claims['sub'],
             'email' => strtolower(trim($claims['email'] ?? '')),
             'email_verified' => (bool) ($claims['email_verified'] ?? false),
+            'phone_number' => $phoneClaim ? trim((string) $phoneClaim) : null,
+            'sign_in_provider' => $signInProvider,
             'name' => $claims['name'] ?? ($claims['email'] ? explode('@', $claims['email'])[0] : 'GST User'),
             'picture' => $claims['picture'] ?? null,
             'claims' => $claims,

@@ -3,7 +3,9 @@ import { apiClient, apiFetch } from './api';
 export interface AuthUser {
   id: number;
   firebase_uid?: string | null;
+  google_id?: string | null;
   name: string;
+  full_name?: string;
   email: string;
   avatar?: string | null;
   mobile?: string | null;
@@ -14,6 +16,7 @@ export interface AuthUser {
   credits?: number;
   is_admin?: boolean;
   provider?: string;
+  auth_provider?: string;
   last_login_at?: string | null;
   created_at?: string | null;
   email_verified_at?: string | null;
@@ -28,52 +31,60 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-export interface SignupChallengeResponse {
-  status: string;
-  requires_verification: boolean;
-  signup_token: string;
-  email_masked: string;
-  mobile_masked: string;
-  expires_in_seconds?: number;
-  cooldown_seconds?: number;
-  message?: string;
-}
-
 export interface LoginChallengeResponse {
   status: string;
   requires_otp: boolean;
   challenge_id: string;
-  channel?: 'email' | 'sms';
+  channel: 'email' | 'mobile';
+  mobile?: string;
   destination_masked: string;
   email_masked?: string;
+  mobile_masked?: string;
   expires_in_seconds?: number;
   cooldown_seconds?: number;
   message?: string;
 }
 
+export interface GoogleAuthVerifyResponse {
+  status: 'success' | 'profile_incomplete';
+  requires_profile_completion?: boolean;
+  message: string;
+  access_token?: string;
+  token_type?: string;
+  user?: AuthUser;
+  google_user?: {
+    uid: string;
+    email: string;
+    name: string;
+    picture?: string | null;
+  };
+}
+
 /**
- * Step 1 Signup: Submit Full Name, Email, Mobile, Password -> Generate Dual OTPs
+ * Step 1 Signup: Pre-validate registration inputs before triggering Firebase SMS OTP
  */
-export async function signup(data: {
+export async function validateSignup(data: {
   name: string;
   email: string;
   mobile: string;
   password: string;
   password_confirmation: string;
-}): Promise<SignupChallengeResponse> {
-  const response: SignupChallengeResponse = await apiClient.post('/api/auth/signup', data);
-  return response;
+}): Promise<{ status: string; message: string; normalized_mobile?: string }> {
+  return await apiClient.post('/api/auth/signup/validate', data);
 }
 
 /**
- * Step 2 Signup: Verify Email OTP & Mobile OTP -> Activate Account & Authenticate
+ * Step 2 Signup: Submit verified Firebase Phone Auth ID token to complete account creation
  */
-export async function verifySignup(data: {
-  signup_token: string;
-  email_otp: string;
-  mobile_otp: string;
+export async function signupWithFirebase(data: {
+  name: string;
+  email: string;
+  mobile: string;
+  password: string;
+  password_confirmation: string;
+  id_token: string;
 }): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/signup/verify', data);
+  const response: AuthResponse = await apiClient.post('/api/auth/signup', data);
 
   if (response.access_token) {
     localStorage.setItem('gst_token', response.access_token);
@@ -86,25 +97,7 @@ export async function verifySignup(data: {
 }
 
 /**
- * Resend Signup Email OTP
- */
-export async function resendSignupEmailOtp(data: {
-  signup_token: string;
-}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
-  return await apiClient.post('/api/auth/signup/resend-email-otp', data);
-}
-
-/**
- * Resend Signup Mobile OTP
- */
-export async function resendSignupMobileOtp(data: {
-  signup_token: string;
-}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
-  return await apiClient.post('/api/auth/signup/resend-mobile-otp', data);
-}
-
-/**
- * Step 1 Login: Verify Email/Mobile + Password -> Trigger Targeted OTP Challenge
+ * Step 1 Login: Verify Email/Mobile + Password -> Returns Email OTP or Mobile SMS challenge
  */
 export async function loginWithCredentials(data: {
   login: string;
@@ -115,9 +108,9 @@ export async function loginWithCredentials(data: {
 }
 
 /**
- * Step 2 Login: Verify 6-digit OTP & Complete Authentication
+ * Step 2 Login (Email flow): Verify 6-digit SMTP Email OTP & Complete Authentication
  */
-export async function verifyLoginOtp(data: {
+export async function verifyLoginEmailOtp(data: {
   challenge_id: string;
   otp: string;
 }): Promise<AuthResponse> {
@@ -133,13 +126,87 @@ export async function verifyLoginOtp(data: {
   return response;
 }
 
+export const verifyLoginOtp = verifyLoginEmailOtp;
+
 /**
- * Resend Login OTP (Email or Mobile depending on challenge channel)
+ * Resend Email Login OTP
  */
-export async function resendLoginOtp(data: {
+export async function resendLoginEmailOtp(data: {
   challenge_id: string;
 }): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
   return await apiClient.post('/api/auth/login/resend-otp', data);
+}
+
+export const resendLoginOtp = resendLoginEmailOtp;
+
+/**
+ * Step 2 Login (Mobile flow): Verify Firebase Phone Auth ID token & Complete Authentication
+ */
+export async function verifyLoginMobileFirebase(data: {
+  id_token: string;
+  mobile: string;
+  challenge_id?: string;
+}): Promise<AuthResponse> {
+  const response: AuthResponse = await apiClient.post('/api/auth/login/verify-mobile', data);
+
+  if (response.access_token) {
+    localStorage.setItem('gst_token', response.access_token);
+  }
+  if (response.user) {
+    localStorage.setItem('gst_user', JSON.stringify(response.user));
+  }
+
+  return response;
+}
+
+/**
+ * Google Auth: Verify Google ID token with backend
+ */
+export async function verifyGoogleToken(data: {
+  id_token: string;
+}): Promise<GoogleAuthVerifyResponse> {
+  const response: GoogleAuthVerifyResponse = await apiClient.post('/api/auth/google/firebase', data);
+
+  if (response.status === 'success' && response.access_token) {
+    localStorage.setItem('gst_token', response.access_token);
+    if (response.user) {
+      localStorage.setItem('gst_user', JSON.stringify(response.user));
+    }
+  }
+
+  return response;
+}
+
+/**
+ * Check if a mobile number is available for registration
+ */
+export async function checkMobileAvailable(data: {
+  mobile: string;
+}): Promise<{ status: string; available: boolean; normalized_mobile?: string }> {
+  return await apiClient.post('/api/auth/check-mobile', data);
+}
+
+/**
+ * Google Profile Completion: Submit Profile details & verified Firebase Phone ID token
+ */
+export async function completeGoogleSignup(data: {
+  phone_id_token: string;
+  google_uid: string;
+  name: string;
+  email: string;
+  mobile: string;
+  avatar?: string | null;
+}): Promise<AuthResponse> {
+  const response: AuthResponse = await apiClient.post('/api/auth/google/complete-signup', data);
+
+  if (response.access_token) {
+    localStorage.setItem('gst_token', response.access_token);
+  }
+  if (response.user) {
+    localStorage.setItem('gst_user', JSON.stringify(response.user));
+  }
+
+  return response;
 }
 
 /**
@@ -193,6 +260,7 @@ export async function logout(): Promise<void> {
   localStorage.removeItem('gst_admin_authenticated');
   sessionStorage.removeItem('gst_signup_challenge');
   sessionStorage.removeItem('gst_login_challenge');
+  sessionStorage.removeItem('gst_google_user');
 }
 
 /**

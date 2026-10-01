@@ -1,7 +1,13 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import type { FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import type { Auth } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  signInWithPopup,
+} from 'firebase/auth';
+import type { Auth, ConfirmationResult, UserCredential, User as FirebaseUser } from 'firebase/auth';
 
 /**
  * Static build-time references to Vite environment variables.
@@ -313,28 +319,6 @@ if (typeof window !== 'undefined') {
     const diagnostic = getSafeFirebaseDiagnostic();
     (window as unknown as { __FIREBASE_DIAGNOSTIC__?: SafeFirebaseDiagnostic }).__FIREBASE_DIAGNOSTIC__ = diagnostic;
 
-    console.info('[Firebase Safe Diagnostic]', {
-      apiKey: {
-        exists: diagnostic.apiKey.exists,
-        length: diagnostic.apiKey.length,
-        startsWithAIza: diagnostic.apiKey.startsWithAIza,
-        source: diagnostic.apiKey.source,
-        isPlaceholder: diagnostic.apiKey.isPlaceholder,
-        hasQuotes: diagnostic.apiKey.hasQuotes,
-        hasWhitespace: diagnostic.apiKey.hasWhitespace,
-      },
-      authDomain: diagnostic.authDomain,
-      projectId: diagnostic.projectId,
-      storageBucket: diagnostic.storageBucket,
-      appId: {
-        exists: diagnostic.appId.exists,
-        length: diagnostic.appId.length,
-        startsWithOneColon: diagnostic.appId.startsWithOneColon,
-        source: diagnostic.appId.source,
-      },
-      browser: diagnostic.browser,
-    });
-
     const config = getFirebaseConfig();
     if (config.apiKey && !diagnostic.apiKey.isPlaceholder) {
       appInstance = getApps().length === 0 ? initializeApp(config) : getApp();
@@ -360,3 +344,119 @@ export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account',
 });
+
+declare global {
+  interface Window {
+    recaptchaVerifier?: RecaptchaVerifier | null;
+  }
+}
+
+/**
+ * Initialize or reset Firebase RecaptchaVerifier safely
+ */
+export function setupRecaptcha(containerId: string = 'recaptcha-container'): RecaptchaVerifier {
+  const auth = getFirebaseAuth();
+
+  // Clear existing verifier if any to prevent duplicate or stale instances
+  if (window.recaptchaVerifier) {
+    try {
+      window.recaptchaVerifier.clear();
+    } catch {
+      // ignore
+    }
+    window.recaptchaVerifier = null;
+  }
+
+  const verifier = new RecaptchaVerifier(auth, containerId, {
+    size: 'invisible',
+    callback: () => {
+      // reCAPTCHA solved
+    },
+    'expired-callback': () => {
+      console.warn('reCAPTCHA expired. Resetting verifier.');
+    },
+  });
+
+  window.recaptchaVerifier = verifier;
+  return verifier;
+}
+
+/**
+ * Send real 6-digit SMS OTP to exact mobile number using Firebase Phone Authentication
+ */
+export async function sendFirebaseSmsOtp(
+  normalizedMobile: string,
+  containerId: string = 'recaptcha-container'
+): Promise<ConfirmationResult> {
+  const auth = getFirebaseAuth();
+  const verifier = setupRecaptcha(containerId);
+  const confirmationResult = await signInWithPhoneNumber(auth, normalizedMobile, verifier);
+  return confirmationResult;
+}
+
+/**
+ * Confirm Firebase Phone OTP and retrieve verified Firebase ID token
+ */
+export async function confirmFirebasePhoneOtp(
+  confirmationResult: ConfirmationResult,
+  code: string
+): Promise<{ idToken: string; user: FirebaseUser; userCredential: UserCredential }> {
+  const userCredential = await confirmationResult.confirm(code);
+  const idToken = await userCredential.user.getIdToken(true);
+  return {
+    idToken,
+    user: userCredential.user,
+    userCredential,
+  };
+}
+
+/**
+ * Sign in / Sign up with Firebase Google provider using Popup
+ */
+export async function signInWithGooglePopup(): Promise<{ idToken: string; user: FirebaseUser }> {
+  const auth = getFirebaseAuth();
+  const result = await signInWithPopup(auth, googleProvider);
+  const idToken = await result.user.getIdToken(true);
+  return {
+    idToken,
+    user: result.user,
+  };
+}
+
+/**
+ * Map Firebase Auth error codes to user-friendly messages
+ */
+export function mapFirebaseError(err: any): string {
+  if (!err) return 'An unexpected error occurred. Please try again.';
+
+  const code = err.code || (err.message && err.message.match(/auth\/[a-z-]+/)?.[0]);
+
+  switch (code) {
+    case 'auth/invalid-phone-number':
+      return 'Please enter a valid 10-digit Indian mobile number (+91XXXXXXXXXX).';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please wait a few minutes before trying again.';
+    case 'auth/quota-exceeded':
+      return 'SMS verification quota exceeded for this project. Please contact support.';
+    case 'auth/code-expired':
+      return 'This verification code has expired. Please request a new OTP.';
+    case 'auth/invalid-verification-code':
+      return 'Invalid verification code. Please check the 6 digits and try again.';
+    case 'auth/captcha-check-failed':
+      return 'reCAPTCHA verification failed. Please refresh the page and try again.';
+    case 'auth/network-request-failed':
+      return 'Network connection error. Please check your internet connection.';
+    case 'auth/popup-closed-by-user':
+      return 'Google sign-in popup was closed before completing.';
+    case 'auth/popup-blocked':
+      return 'Google sign-in popup was blocked by your browser. Please allow popups for this site.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with this email address using another sign-in provider.';
+    case 'auth/user-disabled':
+      return 'This user account has been disabled. Please contact support.';
+    case 'auth/operation-not-allowed':
+      return 'This authentication method is not enabled in Firebase Console.';
+    default:
+      return err.message || 'Authentication error. Please try again.';
+  }
+}

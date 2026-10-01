@@ -39,11 +39,4 @@ return [
         'project_id' => env('FIREBASE_PROJECT_ID', 'gstrepotis'),
     ],
 
-    'twilio' => [
-        'account_sid' => env('TWILIO_ACCOUNT_SID'),
-        'auth_token' => env('TWILIO_AUTH_TOKEN'),
-        'verify_service_sid' => env('TWILIO_VERIFY_SERVICE_SID'),
-        'verify_enabled' => env('TWILIO_VERIFY_ENABLED', true),
-    ],
-
 ];
