@@ -6,7 +6,7 @@ import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Send, CheckCircle2, ArrowRight, ArrowLeft, Clock, Sparkles, Mail, Phone, MapPin } from 'lucide-react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link, useLocation } from 'react-router-dom';
 
 export interface GuideDetail {
   slug: string;
@@ -339,7 +339,110 @@ export const TutorialDetailPage: React.FC = () => {
    3. CONTACT SUPPORT PAGE (/contact)
    ==================================================================== */
 export const ContactPage: React.FC = () => {
+  const { search } = useLocation();
+  const searchParams = new URLSearchParams(search);
+  const rawPlanParam = searchParams.get('plan');
+
+  const normalizePlan = (raw: string | null): string => {
+    if (!raw) return 'Professional';
+    const clean = raw.toLowerCase().replace(/[-_]/g, ' ').trim();
+    if (clean.includes('free')) return 'Free Trial';
+    if (clean.includes('pro')) return 'Professional';
+    if (clean.includes('biz') || clean.includes('business')) return 'Business';
+    if (clean.includes('ent') || clean.includes('enterprise')) return 'Enterprise';
+    return 'Professional';
+  };
+
+  const selectedPlan = normalizePlan(rawPlanParam);
+
+  const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
+    contactNumber: '',
+    email: '',
+    message: '',
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+
+    if (!formData.firstName.trim()) {
+      errs.firstName = 'First name is required.';
+    }
+    if (!formData.lastName.trim()) {
+      errs.lastName = 'Last name is required.';
+    }
+    if (!formData.contactNumber.trim()) {
+      errs.contactNumber = 'Contact number is required.';
+    } else if (!/^[0-9+\s\-().]{7,25}$/.test(formData.contactNumber.trim())) {
+      errs.contactNumber = 'Please enter a valid phone number (at least 7 digits).';
+    }
+    if (!formData.email.trim()) {
+      errs.email = 'Email address is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      errs.email = 'Please enter a valid email address.';
+    }
+    if (!formData.message.trim()) {
+      errs.message = 'Please enter your message or requirement details.';
+    }
+
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setApiError(null);
+
+    if (!validate()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/pricing-enquiries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          first_name: formData.firstName.trim(),
+          last_name: formData.lastName.trim(),
+          contact_number: formData.contactNumber.trim(),
+          email: formData.email.trim().toLowerCase(),
+          message: formData.message.trim(),
+          selected_plan: selectedPlan,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && (data.success || data.status === 'success')) {
+        setSubmitted(true);
+      } else {
+        if (data.errors && typeof data.errors === 'object') {
+          const fieldErrors: Record<string, string> = {};
+          if (data.errors.first_name) fieldErrors.firstName = data.errors.first_name[0];
+          if (data.errors.last_name) fieldErrors.lastName = data.errors.last_name[0];
+          if (data.errors.contact_number) fieldErrors.contactNumber = data.errors.contact_number[0];
+          if (data.errors.email) fieldErrors.email = data.errors.email[0];
+          if (data.errors.message) fieldErrors.message = data.errors.message[0];
+          setErrors(fieldErrors);
+        }
+        setApiError(data.message || 'Unable to submit your enquiry right now. Please try again.');
+      }
+    } catch {
+      setApiError('Unable to submit your enquiry right now. Please check your internet connection and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const breadcrumbs = [
     { label: 'Home', path: '/' },
@@ -349,8 +452,8 @@ export const ContactPage: React.FC = () => {
   return (
     <div className="bg-white text-[#111111] py-12 sm:py-16 max-w-4xl mx-auto px-4 sm:px-6">
       <SEO
-        title="Contact GSTRepotis Support & Sales | GSTRepotis"
-        description="Get in touch with the GSTRepotis team for technical assistance, enterprise inquiries, bank conversion support, or demo requests."
+        title="Contact GSTRepotis | Sales & Support Enquiry"
+        description="Tell us about your requirement and our team will contact you. Inquire about GSTRepotis Free Trial, Professional, Business, and Enterprise plans."
         canonical="https://gstrepotis.com/contact"
         type="website"
         breadcrumbs={breadcrumbs}
@@ -358,13 +461,13 @@ export const ContactPage: React.FC = () => {
 
       <Breadcrumbs items={breadcrumbs} className="mb-6" />
 
-      <div className="text-center max-w-xl mx-auto mb-12">
+      <div className="text-center max-w-xl mx-auto mb-10">
         <Badge variant="outline" className="mb-3">
-          Support & Assistance
+          Sales & Support Enquiry
         </Badge>
-        <h1 className="text-4xl font-extrabold tracking-tight text-[#111111]">Contact GSTRepotis Support</h1>
-        <p className="mt-2 text-sm text-[#666666]">
-          Have questions about bank statement formats, GSTR-2B reconciliations, or practice subscriptions? We are here to help.
+        <h1 className="text-4xl font-extrabold tracking-tight text-[#111111]">Contact GSTRepotis</h1>
+        <p className="mt-2 text-sm sm:text-base text-[#666666]">
+          Tell us about your requirement and our team will contact you.
         </p>
       </div>
 
@@ -401,40 +504,146 @@ export const ContactPage: React.FC = () => {
 
         {/* Contact Form */}
         <div className="md:col-span-2">
-          <Card className="p-8">
+          <Card className="p-6 sm:p-8 border border-[#E5E5E5]">
             {submitted ? (
-              <div className="text-center py-12">
-                <CheckCircle2 className="w-12 h-12 text-[#16A34A] mx-auto mb-3" />
-                <h3 className="text-xl font-bold text-[#111111]">Message Received</h3>
-                <p className="text-xs text-[#666666] mt-1">Our technical support team will contact you shortly.</p>
+              <div className="text-center py-10 space-y-4">
+                <div className="w-12 h-12 bg-green-50 border border-green-200 rounded-full flex items-center justify-center mx-auto text-[#16A34A]">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <h3 className="text-xl font-bold text-[#111111]">Thank you!</h3>
+                <p className="text-xs sm:text-sm text-[#555555] max-w-md mx-auto leading-relaxed">
+                  Your enquiry has been submitted successfully. Our team will contact you shortly.
+                </p>
+                <div className="pt-2">
+                  <span className="inline-block px-3 py-1 bg-[#F7F7F7] border border-[#E5E5E5] rounded-md font-mono text-xs font-bold text-[#111111]">
+                    Plan: {selectedPlan}
+                  </span>
+                </div>
               </div>
             ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setSubmitted(true);
-                }}
-                className="space-y-4"
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input label="Full Name" placeholder="CA Rajesh Sharma" required />
-                  <Input label="Email Address" type="email" placeholder="rajesh@ca-firm.com" required />
+              <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                {/* Non-editable selected plan indicator */}
+                <div className="flex items-center justify-between p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl mb-4">
+                  <span className="text-xs font-mono text-[#666666]">Selected Plan:</span>
+                  <span className="text-xs font-mono font-bold text-black bg-white px-2.5 py-1 rounded border border-[#E5E5E5]">
+                    {selectedPlan}
+                  </span>
                 </div>
-                <Input label="Mobile / WhatsApp Number" placeholder="+91 98765 43210" required />
+
+                {apiError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+                    {apiError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">
+                      First Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your first name"
+                      value={formData.firstName}
+                      onChange={(e) => {
+                        setFormData({ ...formData, firstName: e.target.value });
+                        if (errors.firstName) setErrors({ ...errors, firstName: '' });
+                      }}
+                      className={`w-full bg-white text-xs text-[#111111] rounded-xl border p-3 outline-none transition-colors ${
+                        errors.firstName ? 'border-red-500 focus:border-red-500' : 'border-[#E5E5E5] focus:border-black'
+                      }`}
+                    />
+                    {errors.firstName && <p className="text-[11px] text-red-600 mt-1">{errors.firstName}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">
+                      Last Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your last name"
+                      value={formData.lastName}
+                      onChange={(e) => {
+                        setFormData({ ...formData, lastName: e.target.value });
+                        if (errors.lastName) setErrors({ ...errors, lastName: '' });
+                      }}
+                      className={`w-full bg-white text-xs text-[#111111] rounded-xl border p-3 outline-none transition-colors ${
+                        errors.lastName ? 'border-red-500 focus:border-red-500' : 'border-[#E5E5E5] focus:border-black'
+                      }`}
+                    />
+                    {errors.lastName && <p className="text-[11px] text-red-600 mt-1">{errors.lastName}</p>}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">
-                    How can we help?
+                    Contact Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="Enter your contact number"
+                    value={formData.contactNumber}
+                    onChange={(e) => {
+                      setFormData({ ...formData, contactNumber: e.target.value });
+                      if (errors.contactNumber) setErrors({ ...errors, contactNumber: '' });
+                    }}
+                    className={`w-full bg-white text-xs text-[#111111] rounded-xl border p-3 outline-none transition-colors ${
+                      errors.contactNumber ? 'border-red-500 focus:border-red-500' : 'border-[#E5E5E5] focus:border-black'
+                    }`}
+                  />
+                  {errors.contactNumber && <p className="text-[11px] text-red-600 mt-1">{errors.contactNumber}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">
+                    Email ID <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="Enter your email address"
+                    value={formData.email}
+                    onChange={(e) => {
+                      setFormData({ ...formData, email: e.target.value });
+                      if (errors.email) setErrors({ ...errors, email: '' });
+                    }}
+                    className={`w-full bg-white text-xs text-[#111111] rounded-xl border p-3 outline-none transition-colors ${
+                      errors.email ? 'border-red-500 focus:border-red-500' : 'border-[#E5E5E5] focus:border-black'
+                    }`}
+                  />
+                  {errors.email && <p className="text-[11px] text-red-600 mt-1">{errors.email}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">
+                    Message <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     rows={4}
-                    required
-                    placeholder="Describe your inquiry (e.g. bank PDF support, multi-client workspace, or billing)..."
-                    className="w-full bg-white text-xs text-[#111111] rounded-xl border border-[#E5E5E5] p-3 outline-none focus:border-black"
+                    placeholder="Tell us about your requirement..."
+                    value={formData.message}
+                    onChange={(e) => {
+                      setFormData({ ...formData, message: e.target.value });
+                      if (errors.message) setErrors({ ...errors, message: '' });
+                    }}
+                    className={`w-full bg-white text-xs text-[#111111] rounded-xl border p-3 outline-none transition-colors ${
+                      errors.message ? 'border-red-500 focus:border-red-500' : 'border-[#E5E5E5] focus:border-black'
+                    }`}
                   />
+                  {errors.message && <p className="text-[11px] text-red-600 mt-1">{errors.message}</p>}
                 </div>
-                <Button type="submit" variant="primary" className="w-full" rightIcon={<Send className="w-4 h-4" />}>
-                  Send Message
-                </Button>
+
+                <div className="pt-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    className="w-full"
+                    disabled={isSubmitting}
+                    rightIcon={!isSubmitting ? <Send className="w-4 h-4" /> : undefined}
+                  >
+                    {isSubmitting ? 'Submitting...' : 'Submit Enquiry'}
+                  </Button>
+                </div>
               </form>
             )}
           </Card>
@@ -443,6 +652,7 @@ export const ContactPage: React.FC = () => {
     </div>
   );
 };
+
 
 /* ====================================================================
    4. REQUEST DEMO PAGE (/request-demo)

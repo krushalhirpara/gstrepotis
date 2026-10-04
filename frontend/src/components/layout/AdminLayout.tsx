@@ -10,6 +10,7 @@ import {
   BookOpen,
   History,
   LogOut,
+  Tag,
 } from 'lucide-react';
 
 export const AdminLayout: React.FC = () => {
@@ -17,6 +18,7 @@ export const AdminLayout: React.FC = () => {
 
   const adminNav = [
     { label: 'Admin Dashboard', path: '/admin', icon: ShieldAlert },
+    { label: 'Pricing Enquiries', path: '/admin/pricing-enquiries', icon: Tag },
     { label: 'User Management', path: '/admin/users', icon: Users },
     { label: 'Bank Master CRUD', path: '/admin/banks', icon: Building2 },
     { label: 'Marketplaces CRUD', path: '/admin/marketplaces', icon: ShoppingCart },

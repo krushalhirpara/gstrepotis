@@ -10,12 +10,16 @@ use App\Http\Controllers\FileManagerController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\GstAuditController;
+use App\Http\Controllers\PricingEnquiryController;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes - GST REPOTIS Private Client Infrastructure
 |--------------------------------------------------------------------------
 */
+
+// Public Pricing Enquiry Submission (Public Sales Contact)
+Route::post('/pricing-enquiries', [PricingEnquiryController::class, 'store']);
 
 // Public Authentication Endpoint (Rate limited to prevent brute force)
 Route::prefix('auth')->group(function () {
@@ -150,5 +154,12 @@ Route::prefix('admin')->group(function () {
         Route::get('/hsn', [AdminController::class, 'getHsnMaster']);
         Route::post('/hsn', [AdminController::class, 'addHsn']);
         Route::get('/audit-logs', [AdminController::class, 'getAuditLogs']);
+
+        // Pricing Enquiries Management
+        Route::get('/pricing-enquiries', [PricingEnquiryController::class, 'index']);
+        Route::get('/pricing-enquiries/{id}', [PricingEnquiryController::class, 'show']);
+        Route::patch('/pricing-enquiries/{id}', [PricingEnquiryController::class, 'update']);
+        Route::delete('/pricing-enquiries/{id}', [PricingEnquiryController::class, 'destroy']);
     });
 });
+

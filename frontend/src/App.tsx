@@ -50,6 +50,7 @@ import { ReportsPage, ProfilePage, SupportPage } from './pages/dashboard/UserPag
 import { AdminLayout } from './components/layout/AdminLayout';
 import {
   AdminDashboard,
+  AdminPricingEnquiries,
   AdminUsers,
   AdminBanks,
   AdminMarketplaces,
@@ -200,6 +201,7 @@ export const App: React.FC = () => {
               }
             >
               <Route index element={<AdminDashboard />} />
+              <Route path="pricing-enquiries" element={<AdminPricingEnquiries />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="banks" element={<AdminBanks />} />
               <Route path="marketplaces" element={<AdminMarketplaces />} />

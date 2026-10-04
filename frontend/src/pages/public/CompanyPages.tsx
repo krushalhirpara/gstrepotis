@@ -18,6 +18,7 @@ export const PricingPage: React.FC = () => {
   const plans = [
     {
       name: 'Free Trial',
+      slug: 'free-trial',
       priceMonthly: 0,
       priceYearly: 0,
       bankLimit: 1,
@@ -29,11 +30,12 @@ export const PricingPage: React.FC = () => {
         'CSV & Tally XML Export',
         'Standard Email Support',
       ],
-      cta: 'Start Free Trial',
+      cta: 'Get Free Trial',
       highlight: false,
     },
     {
       name: 'Professional',
+      slug: 'professional',
       priceMonthly: 999,
       priceYearly: 9990,
       bankLimit: 200,
@@ -52,6 +54,7 @@ export const PricingPage: React.FC = () => {
     },
     {
       name: 'Business',
+      slug: 'business',
       priceMonthly: 2499,
       priceYearly: 24990,
       bankLimit: 1000,
@@ -69,6 +72,7 @@ export const PricingPage: React.FC = () => {
     },
     {
       name: 'Enterprise',
+      slug: 'enterprise',
       priceMonthly: 4999,
       priceYearly: 49990,
       bankLimit: 9999,
@@ -85,6 +89,7 @@ export const PricingPage: React.FC = () => {
       highlight: false,
     },
   ];
+
 
   return (
     <div className="bg-white text-[#111111] py-12 sm:py-16">
@@ -166,9 +171,9 @@ export const PricingPage: React.FC = () => {
               </div>
 
               <div className="mt-8 pt-4 border-t border-[#E5E5E5]">
-                <Link to="/login">
+                <Link to={`/contact?plan=${p.slug}`}>
                   <Button variant={p.highlight ? 'primary' : 'outline'} className="w-full">
-                    {p.cta === 'Start Free Trial' ? 'Sign In to Access' : p.cta}
+                    {p.cta}
                   </Button>
                 </Link>
               </div>

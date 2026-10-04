@@ -21,8 +21,28 @@ import {
   Calendar,
   Key,
   CreditCard,
+  Tag,
+  Search,
+  Filter,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+  MessageSquare,
+  AlertCircle,
+  CheckCircle2,
+  X,
+  Layers,
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import {
+  getPricingEnquiries,
+  getPricingEnquiry,
+  updatePricingEnquiryStatus,
+  deletePricingEnquiry,
+  type PricingEnquiryRecord,
+  type PricingEnquiryMetrics,
+} from '../../services/pricingEnquiryService';
 
 export const AdminDashboard: React.FC = () => {
   const [metrics, setMetrics] = useState({
@@ -883,3 +903,861 @@ export const AdminAuditLogs: React.FC = () => {
     </div>
   );
 };
+
+export const AdminPricingEnquiries: React.FC = () => {
+  const [enquiries, setEnquiries] = useState<PricingEnquiryRecord[]>([]);
+  const [metrics, setMetrics] = useState<PricingEnquiryMetrics>({
+    total: 0,
+    new: 0,
+    contacted: 0,
+    in_discussion: 0,
+    converted: 0,
+    closed: 0,
+    plans: {
+      free_trial: 0,
+      professional: 0,
+      business: 0,
+      enterprise: 0,
+    },
+  });
+  const [pagination, setPagination] = useState({
+    current_page: 1,
+    last_page: 1,
+    per_page: 20,
+    total: 0,
+    has_more: false,
+  });
+
+  // Query state
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest'>('newest');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
+
+  // UI state
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSync, setLastSync] = useState('');
+  const [selectedEnquiry, setSelectedEnquiry] = useState<PricingEnquiryRecord | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [enquiryToDelete, setEnquiryToDelete] = useState<PricingEnquiryRecord | null>(null);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [alertBanner, setAlertBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const fetchEnquiries = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    try {
+      const res = await getPricingEnquiries({
+        search: search.trim(),
+        status: statusFilter,
+        plan: planFilter,
+        sort: sortBy,
+        page: currentPage,
+        per_page: perPage,
+      });
+
+      setEnquiries(res.data || []);
+      if (res.metrics) {
+        setMetrics(res.metrics);
+      }
+      if (res.pagination) {
+        setPagination(res.pagination);
+      }
+      setLastSync(
+        new Date().toLocaleTimeString('en-IN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      );
+    } catch (err: any) {
+      console.error('Failed to load pricing enquiries:', err);
+      setAlertBanner({
+        type: 'error',
+        message: err?.message || 'Unable to load pricing enquiries. Please refresh.',
+      });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEnquiries();
+  }, [search, statusFilter, planFilter, sortBy, currentPage, perPage]);
+
+  // Handle Search submit
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearch(searchInput);
+    setCurrentPage(1);
+  };
+
+  // Open Detail Modal
+  const handleViewDetail = async (enquiry: PricingEnquiryRecord) => {
+    setSelectedEnquiry(enquiry);
+    setIsDetailOpen(true);
+    setDetailLoading(true);
+    try {
+      const res = await getPricingEnquiry(enquiry.id);
+      if (res.data) {
+        setSelectedEnquiry(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to load enquiry details:', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  // Update Status
+  const handleStatusChange = async (
+    id: number,
+    newStatus: 'new' | 'contacted' | 'in_discussion' | 'converted' | 'closed'
+  ) => {
+    setStatusUpdating(true);
+    try {
+      const res = await updatePricingEnquiryStatus(id, newStatus);
+      if (res.data) {
+        setEnquiries((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, status: newStatus, updated_at: res.data.updated_at } : item
+          )
+        );
+        if (selectedEnquiry && selectedEnquiry.id === id) {
+          setSelectedEnquiry((prev) => (prev ? { ...prev, status: newStatus, updated_at: res.data.updated_at } : null));
+        }
+        setAlertBanner({
+          type: 'success',
+          message: `Enquiry status updated to "${formatStatus(newStatus)}".`,
+        });
+        // Refresh metrics
+        fetchEnquiries();
+      }
+    } catch (err: any) {
+      console.error('Failed to update status:', err);
+      setAlertBanner({
+        type: 'error',
+        message: err?.message || 'Failed to update enquiry status.',
+      });
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  // Delete Enquiry
+  const handleDeleteEnquiry = async () => {
+    if (!enquiryToDelete) return;
+    setDeleting(true);
+    try {
+      await deletePricingEnquiry(enquiryToDelete.id);
+      setIsDeleteOpen(false);
+      if (selectedEnquiry?.id === enquiryToDelete.id) {
+        setIsDetailOpen(false);
+        setSelectedEnquiry(null);
+      }
+      setEnquiryToDelete(null);
+      setAlertBanner({
+        type: 'success',
+        message: 'Enquiry deleted successfully.',
+      });
+      fetchEnquiries();
+    } catch (err: any) {
+      console.error('Failed to delete enquiry:', err);
+      setAlertBanner({
+        type: 'error',
+        message: err?.message || 'Failed to delete enquiry.',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Helper badge renderers
+  const renderStatusBadge = (status: string) => {
+    switch (status) {
+      case 'new':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+            New
+          </span>
+        );
+      case 'contacted':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+            <Clock className="w-3 h-3" />
+            Contacted
+          </span>
+        );
+      case 'in_discussion':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-50 text-purple-700 border border-purple-200">
+            <MessageSquare className="w-3 h-3" />
+            In Discussion
+          </span>
+        );
+      case 'converted':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle2 className="w-3 h-3" />
+            Converted
+          </span>
+        );
+      case 'closed':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-neutral-100 text-neutral-600 border border-neutral-200">
+            Closed
+          </span>
+        );
+      default:
+        return <Badge variant="neutral">{status}</Badge>;
+    }
+  };
+
+  const renderPlanBadge = (plan: string) => {
+    switch (plan) {
+      case 'Free Trial':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-neutral-100 text-neutral-800 border border-neutral-300">
+            Free Trial
+          </span>
+        );
+      case 'Professional':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+            Professional
+          </span>
+        );
+      case 'Business':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-50 text-purple-800 border border-purple-200">
+            Business
+          </span>
+        );
+      case 'Enterprise':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-neutral-900 text-white border border-black">
+            Enterprise
+          </span>
+        );
+      default:
+        return <Badge variant="outline">{plan}</Badge>;
+    }
+  };
+
+  const formatStatus = (s: string) => {
+    switch (s) {
+      case 'new':
+        return 'New';
+      case 'contacted':
+        return 'Contacted';
+      case 'in_discussion':
+        return 'In Discussion';
+      case 'converted':
+        return 'Converted';
+      case 'closed':
+        return 'Closed';
+      default:
+        return s;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Alert banner if any */}
+      {alertBanner && (
+        <div
+          className={`p-4 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold ${
+            alertBanner.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              : 'bg-red-50 text-red-800 border border-red-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {alertBanner.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-red-600" />
+            )}
+            <span>{alertBanner.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAlertBanner(null)}
+            className="text-neutral-500 hover:text-black"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Header with live sync */}
+      <div className="bg-white p-6 rounded-2xl border border-[#E5E5E5] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-extrabold text-black">Pricing Plan Sales Enquiries</h2>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Live Database
+            </span>
+          </div>
+          <p className="text-xs text-[#666666] mt-1">
+            Real prospective client leads captured from visitor plan selections on the pricing page.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {lastSync && (
+            <span className="text-[11px] text-neutral-400 font-mono hidden md:inline-flex items-center gap-1">
+              <Clock className="w-3 h-3" /> Last Synced: {lastSync}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchEnquiries(true)}
+            isLoading={refreshing}
+            leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
+            className="text-xs font-semibold hover:bg-neutral-50"
+          >
+            Refresh Enquiries
+          </Button>
+        </div>
+      </div>
+
+      {/* Real-time Summary Cards (Real DB metrics) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <KpiCard
+          title="Total Enquiries"
+          value={loading ? '...' : metrics.total}
+          subtitle="All incoming leads"
+          icon={<Tag className="w-5 h-5 text-black" />}
+        />
+        <KpiCard
+          title="New Leads"
+          value={loading ? '...' : metrics.new}
+          subtitle="Awaiting first contact"
+          icon={<AlertCircle className="w-5 h-5 text-blue-600" />}
+          badge={<Badge variant="info">Action Req.</Badge>}
+        />
+        <KpiCard
+          title="Contacted"
+          value={loading ? '...' : metrics.contacted}
+          subtitle="Outreach initiated"
+          icon={<Phone className="w-5 h-5 text-amber-600" />}
+        />
+        <KpiCard
+          title="In Discussion"
+          value={loading ? '...' : metrics.in_discussion}
+          subtitle="Active sales pipeline"
+          icon={<MessageSquare className="w-5 h-5 text-purple-600" />}
+        />
+        <KpiCard
+          title="Converted"
+          value={loading ? '...' : metrics.converted}
+          subtitle={`${metrics.closed} closed leads`}
+          icon={<CheckCircle2 className="w-5 h-5 text-emerald-600" />}
+          badge={<Badge variant="success">Won</Badge>}
+        />
+      </div>
+
+      {/* Plan Breakdown Pill Bar */}
+      <div className="bg-white p-4 rounded-xl border border-[#E5E5E5] flex flex-wrap items-center justify-between gap-3 text-xs">
+        <span className="font-bold text-neutral-700 flex items-center gap-1.5">
+          <Layers className="w-4 h-4 text-neutral-500" /> Plan Distribution:
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-neutral-100 text-neutral-700 font-semibold border border-neutral-200">
+            Free Trial: <span className="font-bold text-black">{metrics.plans?.free_trial || 0}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 text-blue-800 font-semibold border border-blue-200">
+            Professional: <span className="font-bold text-blue-900">{metrics.plans?.professional || 0}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-purple-50 text-purple-800 font-semibold border border-purple-200">
+            Business: <span className="font-bold text-purple-900">{metrics.plans?.business || 0}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-neutral-900 text-white font-semibold">
+            Enterprise: <span className="font-bold text-amber-400">{metrics.plans?.enterprise || 0}</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Search, Filters, and Sorting Controls */}
+      <div className="bg-white p-4 rounded-2xl border border-[#E5E5E5] space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Search Input */}
+          <form onSubmit={handleSearchSubmit} className="flex-1 flex items-center gap-2 max-w-lg">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search by name, email, phone, or plan..."
+                className="w-full bg-[#FAFAFA] border border-neutral-300 rounded-xl pl-9 pr-8 py-2 text-xs text-black placeholder-neutral-400 outline-none focus:border-black transition-colors"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput('');
+                    setSearch('');
+                    setCurrentPage(1);
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-black"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <Button type="submit" variant="outline" size="sm" className="shrink-0 text-xs">
+              Search
+            </Button>
+          </form>
+
+          {/* Filters & Sorting */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Status Filter */}
+            <div className="flex items-center gap-1.5 text-xs text-neutral-600">
+              <Filter className="w-3.5 h-3.5 text-neutral-400" />
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="bg-[#FAFAFA] border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-black outline-none focus:border-black"
+              >
+                <option value="all">All Statuses</option>
+                <option value="new">New</option>
+                <option value="contacted">Contacted</option>
+                <option value="in_discussion">In Discussion</option>
+                <option value="converted">Converted</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            {/* Plan Filter */}
+            <div className="flex items-center gap-1.5 text-xs text-neutral-600">
+              <select
+                value={planFilter}
+                onChange={(e) => {
+                  setPlanFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="bg-[#FAFAFA] border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-black outline-none focus:border-black"
+              >
+                <option value="all">All Plans</option>
+                <option value="Free Trial">Free Trial</option>
+                <option value="Professional">Professional</option>
+                <option value="Business">Business</option>
+                <option value="Enterprise">Enterprise</option>
+              </select>
+            </div>
+
+            {/* Sort Filter */}
+            <div className="flex items-center gap-1.5 text-xs text-neutral-600">
+              <ArrowUpDown className="w-3.5 h-3.5 text-neutral-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(e.target.value as 'newest' | 'oldest');
+                  setCurrentPage(1);
+                }}
+                className="bg-[#FAFAFA] border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-black outline-none focus:border-black"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+              </select>
+            </div>
+
+            {/* Rows Per Page */}
+            <select
+              value={perPage}
+              onChange={(e) => {
+                setPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="bg-[#FAFAFA] border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs font-mono text-neutral-700 outline-none focus:border-black"
+            >
+              <option value={10}>10 / page</option>
+              <option value={20}>20 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Responsive Table */}
+        <div className="border border-[#E5E5E5] rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#F7F7F7] border-b border-[#E5E5E5] font-mono text-[10px] font-bold uppercase tracking-wider text-[#555555]">
+                  <th className="p-3.5">Lead / Contact Name</th>
+                  <th className="p-3.5">Email ID</th>
+                  <th className="p-3.5">Contact Number</th>
+                  <th className="p-3.5">Selected Plan</th>
+                  <th className="p-3.5">Lead Status</th>
+                  <th className="p-3.5">Date Received</th>
+                  <th className="p-3.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E5E5E5] text-xs text-[#111111]">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-neutral-400">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto text-neutral-400 mb-2" />
+                      Loading enquiries from database...
+                    </td>
+                  </tr>
+                ) : enquiries.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center">
+                      <div className="max-w-xs mx-auto">
+                        <Tag className="w-8 h-8 text-neutral-300 mx-auto mb-2" />
+                        <p className="font-mono text-xs font-bold text-[#111111] uppercase tracking-wider">
+                          No pricing enquiries found
+                        </p>
+                        <p className="text-xs text-[#666666] mt-1">
+                          {search || statusFilter !== 'all' || planFilter !== 'all'
+                            ? 'Try adjusting your search keywords or filter options.'
+                            : 'No customer pricing enquiries have been submitted yet.'}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  enquiries.map((row) => (
+                    <tr key={row.id} className="hover:bg-[#FAFAFA] transition-colors">
+                      <td className="p-3.5 font-bold text-black">
+                        <button
+                          type="button"
+                          onClick={() => handleViewDetail(row)}
+                          className="hover:underline text-left font-bold text-black flex items-center gap-1.5"
+                        >
+                          {row.first_name} {row.last_name}
+                        </button>
+                      </td>
+                      <td className="p-3.5 font-mono text-xs text-neutral-700">
+                        <a
+                          href={`mailto:${row.email}`}
+                          className="hover:underline hover:text-black flex items-center gap-1"
+                        >
+                          <Mail className="w-3 h-3 text-neutral-400 shrink-0" />
+                          {row.email}
+                        </a>
+                      </td>
+                      <td className="p-3.5 font-mono text-xs text-neutral-800">
+                        <a
+                          href={`tel:${row.contact_number}`}
+                          className="hover:underline hover:text-black flex items-center gap-1"
+                        >
+                          <Phone className="w-3 h-3 text-neutral-400 shrink-0" />
+                          {row.contact_number}
+                        </a>
+                      </td>
+                      <td className="p-3.5 whitespace-nowrap">
+                        {renderPlanBadge(row.selected_plan)}
+                      </td>
+                      <td className="p-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          {renderStatusBadge(row.status)}
+                          {/* Quick inline status update select */}
+                          <select
+                            value={row.status}
+                            onChange={(e) =>
+                              handleStatusChange(
+                                row.id,
+                                e.target.value as 'new' | 'contacted' | 'in_discussion' | 'converted' | 'closed'
+                              )
+                            }
+                            disabled={statusUpdating}
+                            aria-label={`Change status for ${row.first_name} ${row.last_name}`}
+                            className="text-[11px] bg-white border border-neutral-200 rounded px-1.5 py-0.5 text-neutral-600 hover:border-black cursor-pointer"
+                          >
+                            <option value="new">Mark New</option>
+                            <option value="contacted">Mark Contacted</option>
+                            <option value="in_discussion">Mark In Discussion</option>
+                            <option value="converted">Mark Converted</option>
+                            <option value="closed">Mark Closed</option>
+                          </select>
+                        </div>
+                      </td>
+                      <td className="p-3.5 font-mono text-xs text-neutral-600 whitespace-nowrap">
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleDateString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                            })
+                          : '-'}
+                      </td>
+                      <td className="p-3.5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewDetail(row)}
+                            leftIcon={<Eye className="w-3.5 h-3.5" />}
+                            className="text-xs px-2.5 py-1"
+                          >
+                            Details
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEnquiryToDelete(row);
+                              setIsDeleteOpen(true);
+                            }}
+                            title="Delete Enquiry"
+                            className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Server-Side Pagination Footer */}
+          {pagination.total > 0 && (
+            <div className="p-3.5 border-t border-[#E5E5E5] bg-[#F7F7F7] flex flex-col sm:flex-row items-center justify-between font-mono text-[11px] text-[#555555] gap-3">
+              <span>
+                SHOWING {(pagination.current_page - 1) * pagination.per_page + 1} -{' '}
+                {Math.min(pagination.current_page * pagination.per_page, pagination.total)} OF{' '}
+                {pagination.total} ENQUIRIES
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pagination.current_page <= 1 || loading}
+                  onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                  leftIcon={<ChevronLeft className="w-3.5 h-3.5" />}
+                  className="text-xs"
+                >
+                  PREV
+                </Button>
+                <span className="px-2 font-bold text-[#111111]">
+                  Page {pagination.current_page} of {pagination.last_page || 1}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pagination.current_page >= pagination.last_page || loading}
+                  onClick={() => setCurrentPage((p) => Math.min(p + 1, pagination.last_page))}
+                  rightIcon={<ChevronRight className="w-3.5 h-3.5" />}
+                  className="text-xs"
+                >
+                  NEXT
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Enquiry Detail Modal */}
+      <Modal
+        isOpen={isDetailOpen}
+        onClose={() => setIsDetailOpen(false)}
+        title={
+          selectedEnquiry
+            ? `Enquiry Details — ${selectedEnquiry.first_name} ${selectedEnquiry.last_name}`
+            : 'Enquiry Details'
+        }
+      >
+        {selectedEnquiry && (
+          <div className="space-y-5">
+            {detailLoading && (
+              <div className="text-xs text-neutral-400 flex items-center gap-1.5">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Syncing latest details...
+              </div>
+            )}
+
+            {/* Top Info Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#FAFAFA] p-4 rounded-xl border border-neutral-200 text-xs">
+              <div>
+                <span className="text-[11px] font-mono uppercase text-neutral-400 font-bold block mb-1">
+                  Customer / Lead Name
+                </span>
+                <span className="font-bold text-sm text-black block">
+                  {selectedEnquiry.first_name} {selectedEnquiry.last_name}
+                </span>
+                <span className="text-neutral-500 text-[11px]">
+                  First: {selectedEnquiry.first_name} | Last: {selectedEnquiry.last_name}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[11px] font-mono uppercase text-neutral-400 font-bold block mb-1">
+                  Selected Pricing Plan
+                </span>
+                <div>{renderPlanBadge(selectedEnquiry.selected_plan)}</div>
+              </div>
+
+              <div>
+                <span className="text-[11px] font-mono uppercase text-neutral-400 font-bold block mb-1">
+                  Contact Number
+                </span>
+                <a
+                  href={`tel:${selectedEnquiry.contact_number}`}
+                  className="font-mono text-black font-semibold hover:underline flex items-center gap-1.5"
+                >
+                  <Phone className="w-3.5 h-3.5 text-neutral-500" />
+                  {selectedEnquiry.contact_number}
+                </a>
+              </div>
+
+              <div>
+                <span className="text-[11px] font-mono uppercase text-neutral-400 font-bold block mb-1">
+                  Email ID
+                </span>
+                <a
+                  href={`mailto:${selectedEnquiry.email}`}
+                  className="font-mono text-black font-semibold hover:underline flex items-center gap-1.5"
+                >
+                  <Mail className="w-3.5 h-3.5 text-neutral-500" />
+                  {selectedEnquiry.email}
+                </a>
+              </div>
+
+              <div>
+                <span className="text-[11px] font-mono uppercase text-neutral-400 font-bold block mb-1">
+                  Submission Date
+                </span>
+                <span className="font-mono text-neutral-700">
+                  {selectedEnquiry.created_at
+                    ? new Date(selectedEnquiry.created_at).toLocaleString('en-IN', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '-'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[11px] font-mono uppercase text-neutral-400 font-bold block mb-1">
+                  Current Status
+                </span>
+                <div>{renderStatusBadge(selectedEnquiry.status)}</div>
+              </div>
+            </div>
+
+            {/* Message Box */}
+            <div>
+              <label className="text-xs font-bold text-neutral-700 block mb-1.5">
+                Client Requirement / Message:
+              </label>
+              <div className="bg-white p-4 rounded-xl border border-neutral-300 text-xs text-neutral-900 whitespace-pre-wrap font-sans leading-relaxed min-h-[100px] shadow-inner">
+                {selectedEnquiry.message || <span className="text-neutral-400 italic">No message text provided.</span>}
+              </div>
+            </div>
+
+            {/* Status Management Workflow Buttons */}
+            <div className="space-y-2 pt-2 border-t border-neutral-200">
+              <label className="text-xs font-bold text-neutral-700 block">
+                Update Lead Status:
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {(['new', 'contacted', 'in_discussion', 'converted', 'closed'] as const).map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    disabled={statusUpdating || selectedEnquiry.status === st}
+                    onClick={() => handleStatusChange(selectedEnquiry.id, st)}
+                    className={`px-2.5 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1 border ${
+                      selectedEnquiry.status === st
+                        ? 'bg-black text-white border-black ring-2 ring-neutral-400'
+                        : 'bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-100'
+                    }`}
+                  >
+                    {formatStatus(st)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-4 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setEnquiryToDelete(selectedEnquiry);
+                  setIsDeleteOpen(true);
+                }}
+                className="text-xs font-semibold text-red-600 hover:text-red-800 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Enquiry
+              </button>
+
+              <Button variant="primary" size="sm" onClick={() => setIsDetailOpen(false)}>
+                Close Details
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        title="Confirm Delete Enquiry"
+      >
+        <div className="space-y-4">
+          <div className="bg-red-50 p-4 rounded-xl border border-red-200 text-xs text-red-800 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Are you sure you want to delete this enquiry?</p>
+              <p className="mt-1 text-red-700">
+                Enquiry from{' '}
+                <span className="font-bold">
+                  {enquiryToDelete?.first_name} {enquiryToDelete?.last_name}
+                </span>{' '}
+                for the <span className="font-bold">{enquiryToDelete?.selected_plan}</span> plan will be permanently removed from MySQL.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleDeleteEnquiry}
+              isLoading={deleting}
+              className="bg-red-600 hover:bg-red-700 text-white border-red-600"
+            >
+              Confirm Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+};
+
