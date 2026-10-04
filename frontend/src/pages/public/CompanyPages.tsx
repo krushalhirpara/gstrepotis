@@ -149,9 +149,9 @@ export const PricingPage: React.FC = () => {
               </div>
 
               <div className="mt-8 pt-4 border-t border-[#E5E5E5]">
-                <Link to="/sign-up">
+                <Link to="/login">
                   <Button variant={p.highlight ? 'primary' : 'outline'} className="w-full">
-                    {p.cta}
+                    {p.cta === 'Start Free Trial' ? 'Sign In to Access' : p.cta}
                   </Button>
                 </Link>
               </div>

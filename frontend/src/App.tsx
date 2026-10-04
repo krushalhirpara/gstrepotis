@@ -8,8 +8,7 @@ import { Home } from './pages/public/Home';
 import { BankConverterLanding, EcommerceGstr1Landing } from './pages/public/ProductPages';
 import { PricingPage, AboutPage } from './pages/public/CompanyPages';
 import { TutorialsPage, TutorialDetailPage, ContactPage, RequestDemoPage } from './pages/public/SupportPages';
-import { SignInPage, SignUpPage, ForgotPasswordPage } from './pages/public/AuthPages';
-import { CompleteProfilePage } from './pages/public/CompleteProfilePage';
+import { SignInPage } from './pages/public/AuthPages';
 import { TermsPage, PrivacyPage, RefundPolicyPage } from './pages/public/LegalPages';
 import { WelcomePage } from './pages/public/WelcomePage';
 import { CeoAdminLogin } from './pages/admin/CeoAdminLogin';
@@ -123,46 +122,24 @@ export const App: React.FC = () => {
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/refund-policy" element={<RefundPolicyPage />} />
-            <Route
-              path="/forgot-password"
-              element={
-                <PublicOnlyRoute>
-                  <ForgotPasswordPage />
-                </PublicOnlyRoute>
-              }
-            />
+            <Route path="/forgot-password" element={<Navigate to="/login" replace />} />
 
             <Route path="/ceoadmin" element={<CeoAdminLogin />} />
 
-            {/* Public Auth Routes (Redirect authenticated users to /welcome) */}
+            {/* Public Auth Route */}
             <Route
-              path="/sign-in"
+              path="/login"
               element={
                 <PublicOnlyRoute>
                   <SignInPage />
                 </PublicOnlyRoute>
               }
             />
-            <Route
-              path="/sign-up"
-              element={
-                <PublicOnlyRoute>
-                  <SignUpPage />
-                </PublicOnlyRoute>
-              }
-            />
+            <Route path="/sign-in" element={<Navigate to="/login" replace />} />
+            <Route path="/sign-up" element={<Navigate to="/login" replace />} />
 
-            {/* Protected Profile Completion Route */}
-            <Route
-              path="/complete-profile"
-              element={
-                <ProtectedRoute>
-                  <CompleteProfilePage />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Protected Welcome Product Selection Route */}
+            {/* Legacy Profile Completion / Welcome redirects */}
+            <Route path="/complete-profile" element={<Navigate to="/dashboard" replace />} />
             <Route
               path="/welcome"
               element={

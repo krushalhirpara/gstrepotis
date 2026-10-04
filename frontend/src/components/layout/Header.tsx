@@ -19,7 +19,7 @@ export const Header: React.FC = () => {
   const handleLogout = async () => {
     setIsUserDropdownOpen(false);
     await logout();
-    window.location.href = '/sign-in';
+    window.location.href = '/login';
   };
 
   const isDashboard = ['/dashboard', '/admin', '/pdftotally', '/clients'].some(path => location.pathname.startsWith(path));
@@ -115,18 +115,11 @@ export const Header: React.FC = () => {
               </Link>
             </>
           ) : (
-            <>
-              <Link to="/sign-in">
-                <Button variant="outline" size="sm">
-                  Sign In
-                </Button>
-              </Link>
-              <Link to="/sign-up">
-                <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
-                  Start Free
-                </Button>
-              </Link>
-            </>
+            <Link to="/login">
+              <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
+                Sign In
+              </Button>
+            </Link>
           )}
         </div>
 
@@ -183,18 +176,11 @@ export const Header: React.FC = () => {
                 </Link>
               </>
             ) : (
-              <>
-                <Link to="/sign-in" onClick={() => setIsMobileOpen(false)}>
-                  <Button variant="outline" className="w-full">
-                    Sign In
-                  </Button>
-                </Link>
-                <Link to="/sign-up" onClick={() => setIsMobileOpen(false)}>
-                  <Button variant="primary" className="w-full">
-                    Start Free Trial
-                  </Button>
-                </Link>
-              </>
+              <Link to="/login" onClick={() => setIsMobileOpen(false)}>
+                <Button variant="primary" className="w-full">
+                  Sign In
+                </Button>
+              </Link>
             )}
           </div>
         </div>

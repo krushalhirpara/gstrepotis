@@ -209,9 +209,9 @@ export const Home: React.FC = () => {
               </p>
 
               <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                <Link to="/sign-up">
+                <Link to="/login">
                   <Button size="lg" variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>
-                    Start Free Trial
+                    Sign In to Workspace
                   </Button>
                 </Link>
                 <Link to="/request-demo">
@@ -712,9 +712,9 @@ export const Home: React.FC = () => {
             Join Indian CAs and Tax Professionals saving 15+ hours every week on bank conversions and GSTR-1 filings.
           </p>
           <div className="mt-8 flex justify-center gap-4">
-            <Link to="/sign-up">
+            <Link to="/login">
               <Button size="lg" variant="outline" className="bg-white !text-black hover:bg-neutral-100 font-bold border-white">
-                Start Free Trial Now
+                Sign In Now
               </Button>
             </Link>
           </div>

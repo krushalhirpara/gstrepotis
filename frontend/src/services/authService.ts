@@ -2,8 +2,6 @@ import { apiClient, apiFetch } from './api';
 
 export interface AuthUser {
   id: number;
-  firebase_uid?: string | null;
-  google_id?: string | null;
   name: string;
   full_name?: string;
   email: string;
@@ -31,123 +29,21 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-export interface LoginChallengeResponse {
-  status: string;
-  requires_otp: boolean;
-  challenge_id: string;
-  channel: 'email' | 'mobile';
-  mobile?: string;
-  destination_masked: string;
-  email_masked?: string;
-  mobile_masked?: string;
-  expires_in_seconds?: number;
-  cooldown_seconds?: number;
-  message?: string;
-}
-
-export interface GoogleAuthVerifyResponse {
-  status: 'success' | 'profile_incomplete';
-  requires_profile_completion?: boolean;
-  message: string;
-  access_token?: string;
-  token_type?: string;
-  user?: AuthUser;
-  google_user?: {
-    uid: string;
-    email: string;
-    name: string;
-    picture?: string | null;
-  };
-}
-
 /**
- * Step 1 Signup: Pre-validate registration inputs before triggering Firebase SMS OTP
- */
-export async function validateSignup(data: {
-  name: string;
-  email: string;
-  mobile: string;
-  password: string;
-  password_confirmation: string;
-}): Promise<{ status: string; message: string; normalized_mobile?: string }> {
-  return await apiClient.post('/api/auth/signup/validate', data);
-}
-
-/**
- * Step 2 Signup: Submit verified Firebase Phone Auth ID token to complete account creation
- */
-export async function signupWithFirebase(data: {
-  name: string;
-  email: string;
-  mobile: string;
-  password: string;
-  password_confirmation: string;
-  id_token: string;
-}): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/signup', data);
-
-  if (response.access_token) {
-    localStorage.setItem('gst_token', response.access_token);
-  }
-  if (response.user) {
-    localStorage.setItem('gst_user', JSON.stringify(response.user));
-  }
-
-  return response;
-}
-
-/**
- * Step 1 Login: Verify Email/Mobile + Password -> Returns Email OTP or Mobile SMS challenge
+ * Client Login: Authenticate with Email / User ID + Password
  */
 export async function loginWithCredentials(data: {
-  login: string;
+  login?: string;
+  email?: string;
   password: string;
-}): Promise<LoginChallengeResponse> {
-  const response: LoginChallengeResponse = await apiClient.post('/api/auth/login', data);
-  return response;
-}
-
-/**
- * Step 2 Login (Email flow): Verify 6-digit SMTP Email OTP & Complete Authentication
- */
-export async function verifyLoginEmailOtp(data: {
-  challenge_id: string;
-  otp: string;
 }): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/login/verify-otp', data);
+  const payload = {
+    email: data.email || data.login,
+    login: data.login || data.email,
+    password: data.password,
+  };
 
-  if (response.access_token) {
-    localStorage.setItem('gst_token', response.access_token);
-  }
-  if (response.user) {
-    localStorage.setItem('gst_user', JSON.stringify(response.user));
-  }
-
-  return response;
-}
-
-export const verifyLoginOtp = verifyLoginEmailOtp;
-
-/**
- * Resend Email Login OTP
- */
-export async function resendLoginEmailOtp(data: {
-  challenge_id: string;
-}): Promise<{ status: string; message: string; cooldown_seconds?: number }> {
-  return await apiClient.post('/api/auth/login/resend-otp', data);
-}
-
-export const resendLoginOtp = resendLoginEmailOtp;
-
-/**
- * Step 2 Login (Mobile flow): Verify Firebase Phone Auth ID token & Complete Authentication
- */
-export async function verifyLoginMobileFirebase(data: {
-  id_token: string;
-  mobile: string;
-  challenge_id?: string;
-}): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/login/verify-mobile', data);
+  const response: AuthResponse = await apiClient.post('/api/auth/login', payload);
 
   if (response.access_token) {
     localStorage.setItem('gst_token', response.access_token);
@@ -160,93 +56,7 @@ export async function verifyLoginMobileFirebase(data: {
 }
 
 /**
- * Google Auth: Verify Google ID token with backend
- */
-export async function verifyGoogleToken(data: {
-  id_token: string;
-}): Promise<GoogleAuthVerifyResponse> {
-  const response: GoogleAuthVerifyResponse = await apiClient.post('/api/auth/google/firebase', data);
-
-  if (response.status === 'success' && response.access_token) {
-    localStorage.setItem('gst_token', response.access_token);
-    if (response.user) {
-      localStorage.setItem('gst_user', JSON.stringify(response.user));
-    }
-  }
-
-  return response;
-}
-
-/**
- * Check if a mobile number is available for registration
- */
-export async function checkMobileAvailable(data: {
-  mobile: string;
-}): Promise<{ status: string; available: boolean; normalized_mobile?: string }> {
-  return await apiClient.post('/api/auth/check-mobile', data);
-}
-
-/**
- * Google Profile Completion: Submit Profile details & verified Firebase Phone ID token
- */
-export async function completeGoogleSignup(data: {
-  phone_id_token: string;
-  google_uid: string;
-  name: string;
-  email: string;
-  mobile: string;
-  avatar?: string | null;
-}): Promise<AuthResponse> {
-  const response: AuthResponse = await apiClient.post('/api/auth/google/complete-signup', data);
-
-  if (response.access_token) {
-    localStorage.setItem('gst_token', response.access_token);
-  }
-  if (response.user) {
-    localStorage.setItem('gst_user', JSON.stringify(response.user));
-  }
-
-  return response;
-}
-
-/**
- * Request Password Reset Email OTP
- */
-export async function requestPasswordReset(data: {
-  login: string;
-}): Promise<{ status: string; message: string; destination_masked?: string }> {
-  return await apiClient.post('/api/auth/forgot-password/request', data);
-}
-
-/**
- * Verify Reset OTP and Set New Password
- */
-export async function resetPasswordWithOtp(data: {
-  login: string;
-  otp: string;
-  password: string;
-  password_confirmation: string;
-}): Promise<{ status: string; message: string }> {
-  return await apiClient.post('/api/auth/forgot-password/reset', data);
-}
-
-/**
- * Complete user profile
- */
-export async function completeUserProfile(data: {
-  name: string;
-  mobile: string;
-}): Promise<AuthUser> {
-  const response = await apiClient.post('/api/user/complete-profile', data);
-  if (response.user) {
-    localStorage.setItem('gst_user', JSON.stringify(response.user));
-    return response.user;
-  }
-  return response;
-}
-
-/**
- * Complete Logout: Invalidates backend session and clears local storage
+ * Logout: Invalidates backend session and clears local storage
  */
 export async function logout(): Promise<void> {
   try {
@@ -258,9 +68,7 @@ export async function logout(): Promise<void> {
   localStorage.removeItem('gst_token');
   localStorage.removeItem('gst_user');
   localStorage.removeItem('gst_admin_authenticated');
-  sessionStorage.removeItem('gst_signup_challenge');
-  sessionStorage.removeItem('gst_login_challenge');
-  sessionStorage.removeItem('gst_google_user');
+  sessionStorage.clear();
 }
 
 /**
@@ -300,4 +108,19 @@ export async function fetchUserProfile(): Promise<AuthUser | null> {
     console.warn('Failed to fetch user profile:', err);
   }
   return getLocalUser();
+}
+
+/**
+ * Complete user profile
+ */
+export async function completeUserProfile(data: {
+  name: string;
+  mobile: string;
+}): Promise<AuthUser> {
+  const response = await apiClient.post('/api/user/complete-profile', data);
+  if (response.user) {
+    localStorage.setItem('gst_user', JSON.stringify(response.user));
+    return response.user;
+  }
+  return response;
 }

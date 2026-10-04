@@ -72,8 +72,23 @@ class BankStatementController extends Controller
             $bank = DB::table('banks')->where('code', $bankCode)->first();
             $bankId = $bank ? $bank->id : null;
 
+            $user = $request->user();
+            if (!$user) {
+                $token = $request->bearerToken();
+                if ($token) {
+                    $user = \App\Models\User::where('api_token', $token)->first();
+                }
+            }
+
+            if (!$user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Unauthenticated.',
+                ], 401);
+            }
+
             $statementId = DB::table('bank_statements')->insertGetId([
-                'user_id' => $request->user() ? $request->user()->id : 1,
+                'user_id' => $user->id,
                 'bank_id' => $bankId,
                 'original_filename' => $filename,
                 'stored_filename' => 'temp/' . $filename,

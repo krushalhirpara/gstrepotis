@@ -135,9 +135,8 @@ export async function apiFetch(
   if (response.status === 401) {
     const publicPaths = [
       '/',
+      '/login',
       '/sign-in',
-      '/sign-up',
-      '/forgot-password',
       '/pricing',
       '/about',
       '/tutorials',
@@ -157,7 +156,7 @@ export async function apiFetch(
       localStorage.removeItem('gst_token');
       localStorage.removeItem('gst_user');
       localStorage.removeItem('gst_admin_authenticated');
-      window.location.href = '/sign-in';
+      window.location.href = '/login';
     }
   }
 

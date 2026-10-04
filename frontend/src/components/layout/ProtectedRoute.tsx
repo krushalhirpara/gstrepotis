@@ -12,7 +12,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const isAuthenticated = Boolean(token || user);
 
   if (!isAuthenticated) {
-    return <Navigate to="/sign-in" replace />;
+    return <Navigate to="/login" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;
@@ -29,7 +29,7 @@ export const PublicOnlyRoute: React.FC<PublicOnlyRouteProps> = ({ children }) =>
   const isAuthenticated = Boolean(token || user);
 
   if (isAuthenticated) {
-    return <Navigate to="/welcome" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

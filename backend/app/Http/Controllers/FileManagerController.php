@@ -7,11 +7,30 @@ use Illuminate\Support\Facades\DB;
 
 class FileManagerController extends Controller
 {
+    protected function getUserId(Request $request): int
+    {
+        $user = $request->user();
+        if (!$user) {
+            $token = $request->bearerToken();
+            if ($token) {
+                $user = \App\Models\User::where('api_token', $token)->first();
+            }
+        }
+
+        if (!$user) {
+            abort(response()->json([
+                'status' => 'error',
+                'message' => 'Unauthenticated.',
+            ], 401));
+        }
+
+        return $user->id;
+    }
+
     public function getFiles(Request $request)
     {
         $filter = $request->query('filter', 'all');
-
-        $userId = $request->user() ? $request->user()->id : 1;
+        $userId = $this->getUserId($request);
         
         $bankFiles = DB::table('bank_statements')
             ->where('user_id', $userId)
@@ -41,8 +60,23 @@ class FileManagerController extends Controller
         return response()->json(['files' => array_values($allFiles)]);
     }
 
-    public function deleteFile($id)
+    public function deleteFile(Request $request, $id)
     {
-        return response()->json(['message' => "File #{$id} deleted successfully."]);
+        $userId = $this->getUserId($request);
+
+        $bankDeleted = DB::table('bank_statements')->where('id', $id)->where('user_id', $userId)->delete();
+        $marketDeleted = DB::table('marketplace_files')->where('id', $id)->where('user_id', $userId)->delete();
+
+        if (!$bankDeleted && !$marketDeleted) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'File not found or access denied.',
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "File #{$id} deleted successfully.",
+        ]);
     }
 }

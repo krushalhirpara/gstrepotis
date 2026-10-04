@@ -2,504 +2,338 @@
 
 namespace Tests\Feature;
 
-use App\Models\AuthOtp;
+use App\Models\Client;
 use App\Models\User;
-use App\Mail\OtpVerificationMail;
-use App\Services\FirebaseTokenVerifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Mail;
-use Mockery;
 use Tests\TestCase;
 
 class AuthenticationFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    /**
-     * 1. Signup Pre-Validation: Validates required fields, email format, and password confirmation
-     */
-    public function test_signup_validation_endpoint_validates_input_fields()
+    protected function setUp(): void
     {
-        $response = $this->postJson('/api/auth/signup/validate', [
-            'name' => 'A', // too short
-            'email' => 'invalid-email',
-            'mobile' => '12345', // invalid mobile
-            'password' => 'short',
-            'password_confirmation' => 'mismatch',
-        ]);
+        parent::setUp();
 
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors(['name', 'email', 'mobile', 'password']);
+        // Ensure the 3 authorized accounts exist with correct passwords
+        User::updateOrCreate(
+            ['email' => 'ca.narendrabhai@gmail.com'],
+            [
+                'name' => 'CA Narendra Patel',
+                'password' => Hash::make('Narendra@2026!'),
+                'mobile' => '+919825000001',
+                'user_type' => 'CA',
+                'status' => 'active',
+                'account_status' => 'active',
+                'credits' => 5000,
+            ]
+        );
+
+        User::updateOrCreate(
+            ['email' => 'ca.umeshbhai@gmail.com'],
+            [
+                'name' => 'CA Umesh Patel',
+                'password' => Hash::make('Umesh@2026!'),
+                'mobile' => '+919825000002',
+                'user_type' => 'CA',
+                'status' => 'active',
+                'account_status' => 'active',
+                'credits' => 5000,
+            ]
+        );
+
+        User::updateOrCreate(
+            ['email' => 'ca.test@gmail.com'],
+            [
+                'name' => 'CA Test Account',
+                'password' => Hash::make('Test@2026!'),
+                'mobile' => '+919825000003',
+                'user_type' => 'CA',
+                'status' => 'active',
+                'account_status' => 'active',
+                'credits' => 5000,
+            ]
+        );
     }
 
     /**
-     * 2. Signup Pre-Validation: Rejects duplicate email (case-insensitive)
+     * 1. Valid login for Account 1 (ca.narendrabhai@gmail.com)
      */
-    public function test_signup_validation_rejects_duplicate_email()
+    public function test_valid_login_for_account_1()
     {
-        User::factory()->create([
-            'email' => 'existing@example.com',
-            'mobile' => '+919876543210',
-        ]);
-
-        $response = $this->postJson('/api/auth/signup/validate', [
-            'name' => 'Another User',
-            'email' => 'EXISTING@example.com',
-            'mobile' => '9876543211',
-            'password' => 'Password123!',
-            'password_confirmation' => 'Password123!',
-        ]);
-
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors(['email']);
-    }
-
-    /**
-     * 3. Signup Pre-Validation: Rejects duplicate mobile
-     */
-    public function test_signup_validation_rejects_duplicate_mobile()
-    {
-        User::factory()->create([
-            'email' => 'first@example.com',
-            'mobile' => '+919876543210',
-        ]);
-
-        $response = $this->postJson('/api/auth/signup/validate', [
-            'name' => 'Another User',
-            'email' => 'second@example.com',
-            'mobile' => '9876543210',
-            'password' => 'Password123!',
-            'password_confirmation' => 'Password123!',
-        ]);
-
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors(['mobile']);
-    }
-
-    /**
-     * 4. Signup Step 2: Rejects signup when Firebase phone number does not match submitted mobile number
-     */
-    public function test_signup_rejects_mismatched_phone_number_in_firebase_token()
-    {
-        $mockVerifier = Mockery::mock(FirebaseTokenVerifier::class);
-        $mockVerifier->shouldReceive('verifyIdToken')
-            ->with('phone-token-mismatch')
-            ->andReturn([
-                'uid' => 'phone_uid_different',
-                'phone_number' => '+919999999999', // different from submitted
-                'sign_in_provider' => 'phone',
-            ]);
-
-        $this->app->instance(FirebaseTokenVerifier::class, $mockVerifier);
-
-        $response = $this->postJson('/api/auth/signup', [
-            'name' => 'Krushal Hirpara',
-            'email' => 'krushal@example.com',
-            'mobile' => '9876543210', // +919876543210
-            'password' => 'SecurePassword123!',
-            'password_confirmation' => 'SecurePassword123!',
-            'id_token' => 'phone-token-mismatch',
-        ]);
-
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors(['mobile'])
-            ->assertJson([
-                'code' => 'PHONE_MISMATCH',
-            ]);
-    }
-
-    /**
-     * 5. Signup Step 2: Creates active user account upon valid Firebase Phone verification
-     */
-    public function test_signup_creates_active_user_with_verified_firebase_phone_token()
-    {
-        $mockVerifier = Mockery::mock(FirebaseTokenVerifier::class);
-        $mockVerifier->shouldReceive('verifyIdToken')
-            ->with('valid-phone-token-9876543210')
-            ->andReturn([
-                'uid' => 'firebase_phone_uid_123',
-                'phone_number' => '+919876543210',
-                'sign_in_provider' => 'phone',
-            ]);
-
-        $this->app->instance(FirebaseTokenVerifier::class, $mockVerifier);
-
-        $response = $this->postJson('/api/auth/signup', [
-            'name' => 'Krushal Hirpara',
-            'email' => 'krushal@example.com',
-            'mobile' => '9876543210',
-            'password' => 'SecurePassword123!',
-            'password_confirmation' => 'SecurePassword123!',
-            'id_token' => 'valid-phone-token-9876543210',
-        ]);
-
-        $response->assertStatus(201)
-            ->assertJson([
-                'status' => 'success',
-                'user' => [
-                    'name' => 'Krushal Hirpara',
-                    'email' => 'krushal@example.com',
-                    'mobile' => '+919876543210',
-                    'status' => 'active',
-                    'account_status' => 'active',
-                    'auth_provider' => 'phone',
-                ],
-            ])
-            ->assertJsonStructure(['access_token', 'user']);
-
-        $this->assertDatabaseHas('users', [
-            'email' => 'krushal@example.com',
-            'mobile' => '+919876543210',
-            'firebase_uid' => 'firebase_phone_uid_123',
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-    }
-
-    /**
-     * 6. Login: Rejects incorrect password
-     */
-    public function test_login_rejects_incorrect_password()
-    {
-        User::create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('CorrectPassword123!'),
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
         $response = $this->postJson('/api/auth/login', [
-            'login' => 'test@example.com',
-            'password' => 'WrongPassword!',
-        ]);
-
-        $response->assertStatus(401);
-    }
-
-    /**
-     * 7. Login with Email: Dispatches 6-digit Email OTP exclusively via SMTP to registered email
-     */
-    public function test_login_with_email_sends_otp_to_registered_email()
-    {
-        Mail::fake();
-
-        $user = User::create([
-            'name' => 'Email Login User',
-            'email' => 'emailuser@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('MyPassword123!'),
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
-        $response = $this->postJson('/api/auth/login', [
-            'login' => 'emailuser@example.com',
-            'password' => 'MyPassword123!',
-        ]);
-
-        $response->assertStatus(200)
-            ->assertJson([
-                'status' => 'success',
-                'requires_otp' => true,
-                'channel' => 'email',
-                'destination_masked' => 'e***@example.com',
-            ])
-            ->assertJsonStructure(['challenge_id', 'destination_masked']);
-
-        Mail::assertSent(OtpVerificationMail::class, function ($mail) use ($user) {
-            return $mail->hasTo($user->email);
-        });
-
-        // Challenge must exist in auth_otps
-        $challengeId = $response->json('challenge_id');
-        $this->assertDatabaseHas('auth_otps', [
-            'challenge_id' => $challengeId,
-            'user_id' => $user->id,
-            'channel' => 'email',
-            'purpose' => 'login',
-        ]);
-    }
-
-    /**
-     * 8. Login with Mobile: Returns mobile channel challenge for Firebase Phone Auth
-     */
-    public function test_login_with_mobile_triggers_mobile_otp_challenge()
-    {
-        $user = User::create([
-            'name' => 'Mobile Login User',
-            'email' => 'mobileuser@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('MyPassword123!'),
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
-        $response = $this->postJson('/api/auth/login', [
-            'login' => '9876543210',
-            'password' => 'MyPassword123!',
-        ]);
-
-        $response->assertStatus(200)
-            ->assertJson([
-                'status' => 'success',
-                'requires_otp' => true,
-                'channel' => 'mobile',
-                'mobile' => '+919876543210',
-                'destination_masked' => '+91 ******3210',
-            ])
-            ->assertJsonStructure(['challenge_id', 'mobile']);
-    }
-
-    /**
-     * 9. Verify Email Login OTP: Correct 6-digit OTP authenticates user
-     */
-    public function test_successful_email_login_otp_authenticates_user()
-    {
-        $user = User::create([
-            'name' => 'Email Login User',
-            'email' => 'emailuser2@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('MyPassword123!'),
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
-        $otp = '654321';
-        $challengeId = 'test-challenge-uuid-123';
-
-        AuthOtp::create([
-            'user_id' => $user->id,
-            'challenge_id' => $challengeId,
-            'identifier' => $user->email,
-            'channel' => 'email',
-            'purpose' => 'login',
-            'otp_hash' => hash('sha256', $otp),
-            'expires_at' => now()->addMinutes(5),
-            'attempts' => 0,
-            'max_attempts' => 5,
-            'last_sent_at' => now(),
-        ]);
-
-        $response = $this->postJson('/api/auth/login/verify-otp', [
-            'challenge_id' => $challengeId,
-            'otp' => '654321',
+            'email' => 'ca.narendrabhai@gmail.com',
+            'password' => 'Narendra@2026!',
         ]);
 
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
                 'user' => [
-                    'id' => $user->id,
-                    'email' => 'emailuser2@example.com',
+                    'email' => 'ca.narendrabhai@gmail.com',
+                    'name' => 'CA Narendra Patel',
                 ],
             ])
-            ->assertJsonStructure(['access_token', 'user']);
-
-        // Challenge should be consumed
-        $this->assertDatabaseMissing('auth_otps', [
-            'challenge_id' => $challengeId,
-        ]);
-    }
-
-    /**
-     * 10. Verify Mobile Login Firebase Token: Authenticates user server-side
-     */
-    public function test_successful_mobile_login_firebase_token_authenticates_user()
-    {
-        $user = User::create([
-            'name' => 'Mobile Login User',
-            'email' => 'mobileuser2@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('MyPassword123!'),
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
-        $mockVerifier = Mockery::mock(FirebaseTokenVerifier::class);
-        $mockVerifier->shouldReceive('verifyIdToken')
-            ->with('valid-mobile-login-token')
-            ->andReturn([
-                'uid' => 'firebase_phone_uid_mobile_login',
-                'phone_number' => '+919876543210',
-                'sign_in_provider' => 'phone',
-            ]);
-
-        $this->app->instance(FirebaseTokenVerifier::class, $mockVerifier);
-
-        $response = $this->postJson('/api/auth/login/verify-mobile', [
-            'id_token' => 'valid-mobile-login-token',
-            'mobile' => '+919876543210',
-        ]);
-
-        $response->assertStatus(200)
-            ->assertJson([
-                'status' => 'success',
-                'user' => [
-                    'id' => $user->id,
-                    'email' => 'mobileuser2@example.com',
-                    'mobile' => '+919876543210',
-                ],
-            ])
-            ->assertJsonStructure(['access_token', 'user']);
-
-        $this->assertDatabaseHas('users', [
-            'id' => $user->id,
-            'firebase_uid' => 'firebase_phone_uid_mobile_login',
-        ]);
-    }
-
-    /**
-     * 11. Suspended user cannot login
-     */
-    public function test_suspended_user_cannot_login()
-    {
-        User::create([
-            'name' => 'Suspended User',
-            'email' => 'suspended@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('Password123!'),
-            'status' => 'suspended',
-            'account_status' => 'suspended',
-        ]);
-
-        $response = $this->postJson('/api/auth/login', [
-            'login' => 'suspended@example.com',
-            'password' => 'Password123!',
-        ]);
-
-        $response->assertStatus(403)
-            ->assertJson(['code' => 'ACCOUNT_SUSPENDED']);
-    }
-
-    /**
-     * 12. User logout invalidates session
-     */
-    public function test_user_logout_invalidates_session()
-    {
-        $user = User::create([
-            'name' => 'Logout User',
-            'email' => 'logout@example.com',
-            'password' => Hash::make('Password123!'),
-            'api_token' => 'test-bearer-token-12345',
-            'status' => 'active',
-            'account_status' => 'active',
-        ]);
-
-        $response = $this->withToken('test-bearer-token-12345')
-            ->postJson('/api/auth/logout');
-
-        $response->assertStatus(200);
-
-        $this->assertDatabaseHas('users', [
-            'id' => $user->id,
-            'api_token' => null,
-        ]);
-    }
-
-    /**
-     * 13. Admin endpoints allow CEO admin and reject normal users
-     */
-    public function test_admin_access_control()
-    {
-        // Normal user rejected
-        $normalUser = User::create([
-            'name' => 'Normal User',
-            'email' => 'normal@example.com',
-            'password' => Hash::make('Password123!'),
-            'api_token' => 'normal-token',
-            'is_admin' => 0,
-            'status' => 'active',
-        ]);
-
-        $response = $this->withToken('normal-token')
-            ->getJson('/api/admin/metrics');
-        $response->assertStatus(403);
-
-        // Admin login succeeds
-        $adminLogin = $this->postJson('/api/admin/login', [
-            'email' => 'krushalhirapra12@gmail.com',
-            'password' => 'Krushal@2807',
-        ]);
-
-        $adminLogin->assertStatus(200)
-            ->assertJsonStructure(['token', 'user']);
-
-        $adminToken = $adminLogin->json('token');
-
-        // Admin access granted
-        $metrics = $this->withToken($adminToken)
-            ->getJson('/api/admin/metrics');
-        $metrics->assertStatus(200);
-
-        // User listing returns expected fields including Auth Provider and Account Status
-        $usersList = $this->withToken($adminToken)
-            ->getJson('/api/admin/users');
-        $usersList->assertStatus(200)
             ->assertJsonStructure([
-                'users' => [
-                    '*' => [
-                        'id',
-                        'name',
-                        'email',
-                        'mobile',
-                        'auth_provider',
-                        'account_status',
-                        'created_at',
-                    ],
+                'access_token',
+                'token_type',
+                'user',
+            ]);
+
+        $this->assertNotEmpty($response->json('access_token'));
+    }
+
+    /**
+     * 2. Valid login for Account 2 (ca.umeshbhai@gmail.com)
+     */
+    public function test_valid_login_for_account_2()
+    {
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'ca.umeshbhai@gmail.com',
+            'password' => 'Umesh@2026!',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'user' => [
+                    'email' => 'ca.umeshbhai@gmail.com',
+                    'name' => 'CA Umesh Patel',
                 ],
+            ]);
+
+        $this->assertNotEmpty($response->json('access_token'));
+    }
+
+    /**
+     * 3. Valid login for Account 3 (ca.test@gmail.com)
+     */
+    public function test_valid_login_for_account_3()
+    {
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'ca.test@gmail.com',
+            'password' => 'Test@2026!',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'user' => [
+                    'email' => 'ca.test@gmail.com',
+                    'name' => 'CA Test Account',
+                ],
+            ]);
+
+        $this->assertNotEmpty($response->json('access_token'));
+    }
+
+    /**
+     * 4. Login rejects wrong password with generic error
+     */
+    public function test_login_rejects_wrong_password()
+    {
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'ca.narendrabhai@gmail.com',
+            'password' => 'WrongPassword123!',
+        ]);
+
+        $response->assertStatus(401)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Invalid email or password.',
             ]);
     }
 
     /**
-     * 14. Forgot password email reset flow
+     * 5. Login rejects unknown email with generic error
      */
-    public function test_forgot_password_email_flow()
+    public function test_login_rejects_unknown_email()
     {
-        Mail::fake();
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'unauthorized.unknown@example.com',
+            'password' => 'SomePassword123!',
+        ]);
 
-        $user = User::create([
-            'name' => 'Forgot User',
-            'email' => 'forgot@example.com',
-            'mobile' => '+919876543210',
-            'password' => Hash::make('OldPassword123!'),
+        $response->assertStatus(401)
+            ->assertJson([
+                'status' => 'error',
+                'message' => 'Invalid email or password.',
+            ]);
+    }
+
+    /**
+     * 6. Logout invalidates bearer token
+     */
+    public function test_logout_invalidates_session_token()
+    {
+        $loginRes = $this->postJson('/api/auth/login', [
+            'email' => 'ca.narendrabhai@gmail.com',
+            'password' => 'Narendra@2026!',
+        ]);
+
+        $token = $loginRes->json('access_token');
+
+        // Can access protected endpoint with token
+        $userRes = $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/auth/user');
+        $userRes->assertStatus(200);
+
+        // Logout
+        $logoutRes = $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/auth/logout');
+        $logoutRes->assertStatus(200);
+
+        // Access with old token is now rejected
+        $retryRes = $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/auth/user');
+        $retryRes->assertStatus(401);
+    }
+
+    /**
+     * 7. Direct dashboard/clients access without login is rejected (401)
+     */
+    public function test_unauthenticated_requests_are_rejected()
+    {
+        $this->getJson('/api/dashboard/summary')->assertStatus(401);
+        $this->getJson('/api/clients')->assertStatus(401);
+        $this->getJson('/api/files')->assertStatus(401);
+        $this->getJson('/api/gst-audits')->assertStatus(401);
+    }
+
+    /**
+     * 8 & 9. Multi-client isolation: User A cannot see or access User B's clients or data
+     */
+    public function test_multi_client_isolation_between_users()
+    {
+        $userA = User::where('email', 'ca.narendrabhai@gmail.com')->first();
+        $userB = User::where('email', 'ca.umeshbhai@gmail.com')->first();
+        $userC = User::where('email', 'ca.test@gmail.com')->first();
+
+        // Create clients under User A
+        $clientA1 = Client::create([
+            'user_id' => $userA->id,
+            'trade_name' => 'Narendra Client Alpha',
+            'party_name' => 'Alpha Private Limited',
+            'gstin' => '24ABCDE1234F1Z5',
             'status' => 'active',
-            'account_status' => 'active',
+        ]);
+        $clientA2 = Client::create([
+            'user_id' => $userA->id,
+            'trade_name' => 'Narendra Client Beta',
+            'party_name' => 'Beta Industries',
+            'gstin' => '24BCDEF2345G1Z6',
+            'status' => 'active',
         ]);
 
-        // 1. Request reset
-        $req = $this->postJson('/api/auth/forgot-password', [
-            'login' => 'forgot@example.com',
-        ]);
-        $req->assertStatus(200);
-
-        Mail::assertSent(OtpVerificationMail::class, function ($mail) use ($user) {
-            return $mail->hasTo($user->email);
-        });
-
-        $challenge = AuthOtp::where('user_id', $user->id)
-            ->where('purpose', 'password_reset')
-            ->first();
-        $this->assertNotNull($challenge);
-
-        // Manually set known OTP
-        $challenge->update(['otp_hash' => hash('sha256', '888999')]);
-        \App\Models\OtpVerification::where('user_id', $user->id)->update(['otp_hash' => hash('sha256', '888999')]);
-
-        // 2. Reset with OTP
-        $reset = $this->postJson('/api/auth/reset-password', [
-            'login' => 'forgot@example.com',
-            'otp' => '888999',
-            'password' => 'BrandNewPassword123!',
-            'password_confirmation' => 'BrandNewPassword123!',
+        // Create clients under User B
+        $clientB1 = Client::create([
+            'user_id' => $userB->id,
+            'trade_name' => 'Umesh Client Gamma',
+            'party_name' => 'Gamma Enterprises',
+            'gstin' => '24CDEFG3456H1Z7',
+            'status' => 'active',
         ]);
 
-        $reset->assertStatus(200);
+        // Login as User A
+        $loginA = $this->postJson('/api/auth/login', [
+            'email' => 'ca.narendrabhai@gmail.com',
+            'password' => 'Narendra@2026!',
+        ]);
+        $tokenA = $loginA->json('access_token');
 
-        $user->refresh();
-        $this->assertTrue(Hash::check('BrandNewPassword123!', $user->password));
+        // User A fetches client list -> only sees 2 clients belonging to User A
+        $resA = $this->withHeader('Authorization', "Bearer {$tokenA}")
+            ->getJson('/api/clients');
+        $resA->assertStatus(200);
+        $this->assertCount(2, $resA->json('data'));
+        $this->assertEquals('Narendra Client Alpha', $resA->json('data.0.trade_name'));
+
+        // User A tries to directly access User B's client (IDOR attempt) -> rejected with 404
+        $idorRes = $this->withHeader('Authorization', "Bearer {$tokenA}")
+            ->getJson("/api/clients/{$clientB1->id}");
+        $idorRes->assertStatus(404);
+
+        // Login as User B
+        $loginB = $this->postJson('/api/auth/login', [
+            'email' => 'ca.umeshbhai@gmail.com',
+            'password' => 'Umesh@2026!',
+        ]);
+        $tokenB = $loginB->json('access_token');
+
+        // User B fetches client list -> only sees 1 client belonging to User B
+        $resB = $this->withHeader('Authorization', "Bearer {$tokenB}")
+            ->getJson('/api/clients');
+        $resB->assertStatus(200);
+        $this->assertCount(1, $resB->json('data'));
+        $this->assertEquals('Umesh Client Gamma', $resB->json('data.0.trade_name'));
+
+        // User B tries to directly access User A's client (IDOR attempt) -> rejected with 404
+        $idorResB = $this->withHeader('Authorization', "Bearer {$tokenB}")
+            ->getJson("/api/clients/{$clientA1->id}");
+        $idorResB->assertStatus(404);
+
+        // Login as User C -> has 0 clients initially
+        $loginC = $this->postJson('/api/auth/login', [
+            'email' => 'ca.test@gmail.com',
+            'password' => 'Test@2026!',
+        ]);
+        $tokenC = $loginC->json('access_token');
+
+        $resC = $this->withHeader('Authorization', "Bearer {$tokenC}")
+            ->getJson('/api/clients');
+        $resC->assertStatus(200);
+        $this->assertCount(0, $resC->json('data'));
+    }
+
+    /**
+     * 10. Multiple clients can be created under one user
+     */
+    public function test_multiple_clients_can_be_created_under_one_user()
+    {
+        $login = $this->postJson('/api/auth/login', [
+            'email' => 'ca.narendrabhai@gmail.com',
+            'password' => 'Narendra@2026!',
+        ]);
+        $token = $login->json('access_token');
+
+        // Create Client 1
+        $res1 = $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/clients', [
+                'trade_name' => 'Sunrise Textiles',
+                'party_name' => 'Sunrise Textiles Pvt Ltd',
+                'gstin' => '24AAAAA0000A1Z5',
+                'filing_frequency' => 'monthly',
+            ]);
+        $res1->assertStatus(201);
+
+        // Create Client 2
+        $res2 = $this->withHeader('Authorization', "Bearer {$token}")
+            ->postJson('/api/clients', [
+                'trade_name' => 'Apex Logistics',
+                'party_name' => 'Apex Logistics LLP',
+                'gstin' => '24BBBBB0000B1Z6',
+                'filing_frequency' => 'quarterly',
+            ]);
+        $res2->assertStatus(201);
+
+        // Fetch list
+        $listRes = $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/clients');
+        $listRes->assertStatus(200);
+        $this->assertCount(2, $listRes->json('data'));
+    }
+
+    /**
+     * 11. Public signup/OTP endpoints are disabled
+     */
+    public function test_public_signup_endpoints_are_disabled()
+    {
+        $this->postJson('/api/auth/signup/validate', ['email' => 'random@example.com'])
+            ->assertStatus(403);
+        $this->postJson('/api/auth/register', ['email' => 'random@example.com'])
+            ->assertStatus(403);
+        $this->postJson('/api/auth/google', ['id_token' => 'dummy'])
+            ->assertStatus(403);
     }
 }

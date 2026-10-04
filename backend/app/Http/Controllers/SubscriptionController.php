@@ -19,8 +19,17 @@ class SubscriptionController extends Controller
 
     public function getCurrentSubscription(Request $request)
     {
-        $bankUsed = DB::table('bank_statements')->count();
-        $ecomUsed = DB::table('marketplace_files')->count();
+        $user = $request->user();
+        if (!$user) {
+            $token = $request->bearerToken();
+            if ($token) {
+                $user = \App\Models\User::where('api_token', $token)->first();
+            }
+        }
+        $userId = $user ? $user->id : 0;
+
+        $bankUsed = DB::table('bank_statements')->where('user_id', $userId)->count();
+        $ecomUsed = DB::table('marketplace_files')->where('user_id', $userId)->count();
 
         return response()->json([
             'current_plan' => [

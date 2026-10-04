@@ -14,7 +14,22 @@ class ClientController extends Controller
      */
     protected function getUserId(Request $request): int
     {
-        return $request->user()?->id ?? 1;
+        $user = $request->user();
+        if (!$user) {
+            $token = $request->bearerToken();
+            if ($token) {
+                $user = \App\Models\User::where('api_token', $token)->first();
+            }
+        }
+
+        if (!$user) {
+            abort(response()->json([
+                'status' => 'error',
+                'message' => 'Unauthenticated.',
+            ], 401));
+        }
+
+        return $user->id;
     }
 
     /**

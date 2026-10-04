@@ -9,8 +9,22 @@ class DashboardController extends Controller
 {
     public function getSummary(Request $request)
     {
-        $user = $request->user() ?? \App\Models\User::where('email', 'demo@gstsuite.com')->first();
-        $userId = $user ? $user->id : 1;
+        $user = $request->user();
+        if (!$user) {
+            $token = $request->bearerToken();
+            if ($token) {
+                $user = \App\Models\User::where('api_token', $token)->first();
+            }
+        }
+
+        if (!$user) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
+        $userId = $user->id;
 
         $totalBankFiles = DB::table('bank_statements')->where('user_id', $userId)->count();
         $totalEcommerceFiles = DB::table('marketplace_files')->where('user_id', $userId)->count();

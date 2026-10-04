@@ -13,96 +13,124 @@ use App\Http\Controllers\GstAuditController;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes - GST REPOTIS
+| API Routes - GST REPOTIS Private Client Infrastructure
 |--------------------------------------------------------------------------
 */
 
-// Authentication System (Firebase Phone/Google/Email & Password, Login OTP, Password Reset)
+// Public Authentication Endpoint (Rate limited to prevent brute force)
 Route::prefix('auth')->group(function () {
-    // Signup (Pre-validation & Phone Firebase ID Token Registration)
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+
+    // Disabled legacy endpoints returning structured status
     Route::post('/signup/validate', [AuthController::class, 'validateSignup']);
     Route::post('/register/validate', [AuthController::class, 'validateSignup']);
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/signup', [AuthController::class, 'register']);
-
-    // Login (Email -> SMTP Email OTP, Mobile -> Firebase Phone OTP)
-    Route::post('/login', [AuthController::class, 'login']);
-    Route::post('/login/verify-otp', [AuthController::class, 'verifyLoginOtp']);
-    Route::post('/login/verify', [AuthController::class, 'verifyLoginOtp']);
-    Route::post('/login/resend-otp', [AuthController::class, 'resendLoginOtp']);
-    Route::post('/login/resend', [AuthController::class, 'resendLoginOtp']);
-    Route::post('/login/verify-mobile', [AuthController::class, 'verifyMobileLoginFirebase']);
-    Route::post('/login/verify-firebase', [AuthController::class, 'verifyMobileLoginFirebase']);
-
-    // Google Auth & Profile Completion
     Route::post('/google', [AuthController::class, 'loginWithFirebase']);
     Route::post('/google/firebase', [AuthController::class, 'loginWithFirebase']);
-    Route::post('/google/verify', [AuthController::class, 'loginWithFirebase']);
     Route::post('/check-mobile', [AuthController::class, 'checkMobileAvailability']);
     Route::post('/google/complete-signup', [AuthController::class, 'completeGoogleSignup']);
-
-    // Password Reset (Email-based verification via SMTP)
     Route::post('/forgot-password', [AuthController::class, 'forgotPasswordRequest']);
     Route::post('/forgot-password/request', [AuthController::class, 'forgotPasswordRequest']);
     Route::post('/reset-password', [AuthController::class, 'forgotPasswordReset']);
     Route::post('/forgot-password/reset', [AuthController::class, 'forgotPasswordReset']);
-
-    // Authenticated User
-    Route::get('/user', [AuthController::class, 'user']);
-    Route::get('/profile', [AuthController::class, 'profile']);
-    Route::post('/complete-profile', [AuthController::class, 'completeProfile']);
-    Route::post('/logout', [AuthController::class, 'logout']);
 });
 
-// User Profile & Account Management
-Route::prefix('user')->group(function () {
-    Route::get('/profile', [AuthController::class, 'profile']);
-    Route::post('/complete-profile', [AuthController::class, 'completeProfile']);
-    Route::put('/profile', [AuthController::class, 'completeProfile']);
-});
+// Protected Workspace Routes (Enforces auth.token bearer session validation)
+Route::middleware('auth.token')->group(function () {
 
-// Dashboard
-Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
+    // User & Profile
+    Route::get('/auth/user', [AuthController::class, 'user']);
+    Route::get('/auth/profile', [AuthController::class, 'profile']);
+    Route::post('/auth/complete-profile', [AuthController::class, 'completeProfile']);
+    Route::get('/user/profile', [AuthController::class, 'profile']);
+    Route::post('/user/complete-profile', [AuthController::class, 'completeProfile']);
+    Route::put('/user/profile', [AuthController::class, 'completeProfile']);
 
-// Bank Statement Converter
-Route::prefix('bank-statements')->group(function () {
-    Route::get('/banks', [BankStatementController::class, 'getBanks']);
-    Route::post('/process', [BankStatementController::class, 'processStatement']);
-    Route::post('/export-csv', [BankStatementController::class, 'exportCsv']);
-    Route::post('/export-excel', [BankStatementController::class, 'exportExcel']);
-    Route::post('/export-xml', [BankStatementController::class, 'exportTallyXml']);
-});
+    // Dashboard Overview
+    Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
 
-// E-Commerce GSTR-1 Engine
-Route::prefix('ecommerce')->group(function () {
-    Route::get('/marketplaces', [EcommerceGstr1Controller::class, 'getMarketplaces']);
-    Route::post('/process', [EcommerceGstr1Controller::class, 'processReport']);
-    Route::post('/export-json', [EcommerceGstr1Controller::class, 'exportGstr1Json']);
-    Route::post('/export-tally-xml', [EcommerceGstr1Controller::class, 'exportGstr1TallyXml']);
-});
+    // Bank Statement Converter Engine
+    Route::prefix('bank-statements')->group(function () {
+        Route::get('/banks', [BankStatementController::class, 'getBanks']);
+        Route::post('/process', [BankStatementController::class, 'processStatement']);
+        Route::post('/export-csv', [BankStatementController::class, 'exportCsv']);
+        Route::post('/export-excel', [BankStatementController::class, 'exportExcel']);
+        Route::post('/export-xml', [BankStatementController::class, 'exportTallyXml']);
+    });
 
-// Client Management System
-Route::prefix('clients')->group(function () {
-    Route::get('/', [ClientController::class, 'index']);
-    Route::post('/', [ClientController::class, 'store']);
-    Route::post('/bulk-upload', [ClientController::class, 'bulkUpload']);
-    Route::get('/{id}', [ClientController::class, 'show']);
-    Route::put('/{id}', [ClientController::class, 'update']);
-    Route::delete('/{id}', [ClientController::class, 'destroy']);
-});
+    // E-Commerce GSTR-1 Engine
+    Route::prefix('ecommerce')->group(function () {
+        Route::get('/marketplaces', [EcommerceGstr1Controller::class, 'getMarketplaces']);
+        Route::post('/process', [EcommerceGstr1Controller::class, 'processReport']);
+        Route::post('/export-json', [EcommerceGstr1Controller::class, 'exportGstr1Json']);
+        Route::post('/export-tally-xml', [EcommerceGstr1Controller::class, 'exportGstr1TallyXml']);
+    });
 
-// File Management
-Route::prefix('files')->group(function () {
-    Route::get('/', [FileManagerController::class, 'getFiles']);
-    Route::delete('/{id}', [FileManagerController::class, 'deleteFile']);
-});
+    // Client Management Module (Multi-tenant isolated per user)
+    Route::prefix('clients')->group(function () {
+        Route::get('/', [ClientController::class, 'index']);
+        Route::post('/', [ClientController::class, 'store']);
+        Route::post('/bulk-upload', [ClientController::class, 'bulkUpload']);
+        Route::get('/{id}', [ClientController::class, 'show']);
+        Route::put('/{id}', [ClientController::class, 'update']);
+        Route::delete('/{id}', [ClientController::class, 'destroy']);
+    });
 
-// Subscriptions & Razorpay
-Route::prefix('subscription')->group(function () {
-    Route::get('/plans', [SubscriptionController::class, 'getPlans']);
-    Route::get('/current', [SubscriptionController::class, 'getCurrentSubscription']);
-    Route::post('/create-order', [SubscriptionController::class, 'createRazorpayOrder']);
-    Route::post('/verify-payment', [SubscriptionController::class, 'verifyPayment']);
+    // File Management
+    Route::prefix('files')->group(function () {
+        Route::get('/', [FileManagerController::class, 'getFiles']);
+        Route::delete('/{id}', [FileManagerController::class, 'deleteFile']);
+    });
+
+    // Subscriptions & Plans
+    Route::prefix('subscription')->group(function () {
+        Route::get('/plans', [SubscriptionController::class, 'getPlans']);
+        Route::get('/current', [SubscriptionController::class, 'getCurrentSubscription']);
+        Route::post('/create-order', [SubscriptionController::class, 'createRazorpayOrder']);
+        Route::post('/verify-payment', [SubscriptionController::class, 'verifyPayment']);
+    });
+
+    // GST Audit & Reconciliation Workspace Module
+    Route::prefix('gst-audits')->group(function () {
+        Route::get('/', [GstAuditController::class, 'index']);
+        Route::post('/', [GstAuditController::class, 'store']);
+        Route::get('/{id}', [GstAuditController::class, 'show']);
+        Route::put('/{id}', [GstAuditController::class, 'update']);
+        Route::delete('/{id}', [GstAuditController::class, 'destroy']);
+
+        // Audit Files Management
+        Route::post('/{id}/files', [GstAuditController::class, 'uploadFile']);
+        Route::get('/{id}/files', [GstAuditController::class, 'listFiles']);
+        Route::delete('/{id}/files/{fileId}', [GstAuditController::class, 'deleteFile']);
+
+        // Reconciliation & Rule Engine
+        Route::post('/{id}/process', [GstAuditController::class, 'processAudit']);
+
+        // Views & Analytics
+        Route::get('/{id}/summary', [GstAuditController::class, 'getSummary']);
+        Route::get('/{id}/reconciliation', [GstAuditController::class, 'getReconciliations']);
+        Route::get('/{id}/itc', [GstAuditController::class, 'getItcAnalysis']);
+
+        // Exceptions Management
+        Route::get('/{id}/exceptions', [GstAuditController::class, 'getExceptions']);
+        Route::patch('/{id}/exceptions/{exceptionId}', [GstAuditController::class, 'updateException']);
+        Route::post('/{id}/exceptions/bulk', [GstAuditController::class, 'bulkUpdateExceptions']);
+
+        // Checklist
+        Route::get('/{id}/checklist', [GstAuditController::class, 'getChecklist']);
+        Route::patch('/{id}/checklist/{itemId}', [GstAuditController::class, 'updateChecklistItem']);
+
+        // CA Working Papers
+        Route::get('/{id}/working-papers', [GstAuditController::class, 'getWorkingPapers']);
+        Route::post('/{id}/working-papers', [GstAuditController::class, 'storeWorkingPaper']);
+        Route::delete('/{id}/working-papers/{wpId}', [GstAuditController::class, 'deleteWorkingPaper']);
+
+        // Reports & Exports
+        Route::get('/{id}/report', [GstAuditController::class, 'getReport']);
+        Route::get('/{id}/export/csv', [GstAuditController::class, 'exportCsv']);
+    });
 });
 
 // Admin Control Panel
@@ -110,7 +138,7 @@ Route::prefix('admin')->group(function () {
     // Public admin login
     Route::post('/login', [AdminController::class, 'login']);
 
-    // Protected admin management routes (Enforced server-side)
+    // Protected admin management routes
     Route::middleware('auth.admin')->group(function () {
         Route::get('/metrics', [AdminController::class, 'getMetrics']);
         Route::get('/users', [AdminController::class, 'getUsers']);
@@ -123,44 +151,4 @@ Route::prefix('admin')->group(function () {
         Route::post('/hsn', [AdminController::class, 'addHsn']);
         Route::get('/audit-logs', [AdminController::class, 'getAuditLogs']);
     });
-});
-
-// GST Audit & Reconciliation Workspace Module (Protected with auth.token)
-Route::middleware('auth.token')->prefix('gst-audits')->group(function () {
-    Route::get('/', [GstAuditController::class, 'index']);
-    Route::post('/', [GstAuditController::class, 'store']);
-    Route::get('/{id}', [GstAuditController::class, 'show']);
-    Route::put('/{id}', [GstAuditController::class, 'update']);
-    Route::delete('/{id}', [GstAuditController::class, 'destroy']);
-
-    // File Management & Upload
-    Route::post('/{id}/files', [GstAuditController::class, 'uploadFile']);
-    Route::get('/{id}/files', [GstAuditController::class, 'listFiles']);
-    Route::delete('/{id}/files/{fileId}', [GstAuditController::class, 'deleteFile']);
-
-    // Process reconciliation & rule engine
-    Route::post('/{id}/process', [GstAuditController::class, 'processAudit']);
-
-    // Analytics & Recon Views
-    Route::get('/{id}/summary', [GstAuditController::class, 'getSummary']);
-    Route::get('/{id}/reconciliation', [GstAuditController::class, 'getReconciliations']);
-    Route::get('/{id}/itc', [GstAuditController::class, 'getItcAnalysis']);
-
-    // Exceptions & Review
-    Route::get('/{id}/exceptions', [GstAuditController::class, 'getExceptions']);
-    Route::patch('/{id}/exceptions/{exceptionId}', [GstAuditController::class, 'updateException']);
-    Route::post('/{id}/exceptions/bulk', [GstAuditController::class, 'bulkUpdateExceptions']);
-
-    // Audit Checklist
-    Route::get('/{id}/checklist', [GstAuditController::class, 'getChecklist']);
-    Route::patch('/{id}/checklist/{itemId}', [GstAuditController::class, 'updateChecklistItem']);
-
-    // CA Working Papers
-    Route::get('/{id}/working-papers', [GstAuditController::class, 'getWorkingPapers']);
-    Route::post('/{id}/working-papers', [GstAuditController::class, 'storeWorkingPaper']);
-    Route::delete('/{id}/working-papers/{wpId}', [GstAuditController::class, 'deleteWorkingPaper']);
-
-    // Reports & Exports
-    Route::get('/{id}/report', [GstAuditController::class, 'getReport']);
-    Route::get('/{id}/export/csv', [GstAuditController::class, 'exportCsv']);
 });

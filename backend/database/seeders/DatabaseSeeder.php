@@ -11,10 +11,49 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        // 1. Admin & Demo User Creation
-        $admin = User::updateOrCreate(
-            ['email' => 'admin@gstsuite.com'],
+        // 1. Authorized Client Accounts & Admin Creation
+        $accounts = [
             [
+                'email' => 'ca.narendrabhai@gmail.com',
+                'name' => 'CA Narendra Patel',
+                'password' => Hash::make('Narendra@2026!'),
+                'mobile' => '+91 9825000001',
+                'user_type' => 'CA',
+                'is_admin' => false,
+                'credits' => 5000,
+                'status' => 'active',
+                'account_status' => 'active',
+                'email_verified_at' => now(),
+                'mobile_verified_at' => now(),
+            ],
+            [
+                'email' => 'ca.umeshbhai@gmail.com',
+                'name' => 'CA Umesh Patel',
+                'password' => Hash::make('Umesh@2026!'),
+                'mobile' => '+91 9825000002',
+                'user_type' => 'CA',
+                'is_admin' => false,
+                'credits' => 5000,
+                'status' => 'active',
+                'account_status' => 'active',
+                'email_verified_at' => now(),
+                'mobile_verified_at' => now(),
+            ],
+            [
+                'email' => 'ca.test@gmail.com',
+                'name' => 'CA Test Account',
+                'password' => Hash::make('Test@2026!'),
+                'mobile' => '+91 9825000003',
+                'user_type' => 'CA',
+                'is_admin' => false,
+                'credits' => 5000,
+                'status' => 'active',
+                'account_status' => 'active',
+                'email_verified_at' => now(),
+                'mobile_verified_at' => now(),
+            ],
+            [
+                'email' => 'admin@gstsuite.com',
                 'name' => 'System Admin',
                 'password' => Hash::make('password123'),
                 'mobile' => '+91 9876543210',
@@ -22,21 +61,18 @@ class DatabaseSeeder extends Seeder
                 'is_admin' => true,
                 'credits' => 99999,
                 'status' => 'active',
-            ]
-        );
+                'account_status' => 'active',
+                'email_verified_at' => now(),
+                'mobile_verified_at' => now(),
+            ],
+        ];
 
-        $demoUser = User::updateOrCreate(
-            ['email' => 'demo@gstsuite.com'],
-            [
-                'name' => 'Rajesh Sharma (CA)',
-                'password' => Hash::make('password123'),
-                'mobile' => '+91 9812345678',
-                'user_type' => 'CA',
-                'is_admin' => false,
-                'credits' => 150,
-                'status' => 'active',
-            ]
-        );
+        foreach ($accounts as $acc) {
+            User::updateOrCreate(
+                ['email' => $acc['email']],
+                $acc
+            );
+        }
 
         // 2. Seed Banks Table (Section 8 of specification)
         $banks = [
