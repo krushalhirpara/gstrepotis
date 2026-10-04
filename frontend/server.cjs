@@ -210,42 +210,10 @@ function startStaticServer() {
 }
 
 /**
- * Start using Vite preview programmatically if possible, or fallback to static server
+ * Production server entry point
  */
-async function main() {
-  try {
-    const { preview } = await import('vite');
-    const viteServer = await preview({
-      root: __dirname,
-      preview: {
-        port: PORT,
-        host: HOST,
-        strictPort: false,
-        allowedHosts: [
-          'gstrepotis.com',
-          'www.gstrepotis.com',
-          '.railway.app',
-          '.up.railway.app',
-          '.laravel.cloud',
-        ],
-      },
-    });
-
-    console.log(`[Vite Preview] Production server active on http://${HOST}:${PORT}`);
-    viteServer.printUrls();
-
-    const shutdown = (signal) => {
-      console.log(`[Vite Preview] Received ${signal}, closing...`);
-      viteServer.close();
-      process.exit(0);
-    };
-
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
-    process.on('SIGINT', () => shutdown('SIGINT'));
-  } catch (err) {
-    console.log(`[Notice] Vite preview import error (${err.message}). Starting robust native static server...`);
-    startStaticServer();
-  }
+function main() {
+  startStaticServer();
 }
 
 main();

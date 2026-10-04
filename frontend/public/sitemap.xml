@@ -1,362 +1,114 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <!-- Core Public Landing Pages -->
   <url>
     <loc>https://gstrepotis.com/</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-software</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-software-for-ca</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-software-for-accountants</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-software-for-business</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-compliance-software</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-reconciliation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gstr-1-software</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gstr-3b-software</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gstr-2b-reconciliation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/gst-audit-software</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/bank-statement-to-tally</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/tally-integration</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
-
-  <!-- Company & Support Pages -->
   <url>
     <loc>https://gstrepotis.com/pricing</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/about</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/contact</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/request-demo</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/tutorials</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/tutorials/hdfc-bank-statement-to-tally-xml</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/tutorials/amazon-flipkart-gstr1-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/tutorials/tcs-section-95-reconciliation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
   </url>
-
-  <!-- Legal Trust Pages -->
   <url>
     <loc>https://gstrepotis.com/terms-and-conditions</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/privacy-policy</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/refund-policy</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/disclaimer</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.5</priority>
   </url>
-
-  <!-- Blog Index -->
   <url>
     <loc>https://gstrepotis.com/blog</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-
-  <!-- Blog Articles: Topic Cluster 1 - GST Reconciliation -->
-  <url>
-    <loc>https://gstrepotis.com/blog/what-is-gst-reconciliation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/blog/gstr-2b-reconciliation-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/blog/gstr-2b-vs-purchase-register</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gstr-1-vs-books-reconciliation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://gstrepotis.com/blog/gstr-1-vs-gstr-3b-reconciliation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://gstrepotis.com/blog/gst-itc-mismatch-resolution</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://gstrepotis.com/blog/gst-itc-mismatch</loc>
   </url>
   <url>
-    <loc>https://gstrepotis.com/blog/gst-reconciliation-checklist</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://gstrepotis.com/blog/gstr-1-guide</loc>
   </url>
   <url>
-    <loc>https://gstrepotis.com/blog/common-gst-reconciliation-errors</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Blog Articles: Topic Cluster 2 - GST Returns -->
-  <url>
-    <loc>https://gstrepotis.com/blog/gstr-1-filing-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://gstrepotis.com/blog/gstr-3b-guide</loc>
   </url>
   <url>
-    <loc>https://gstrepotis.com/blog/gstr-3b-filing-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gstr-9-annual-return-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gstr-9c-reconciliation-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gst-return-filing-checklist</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/common-gst-return-mistakes</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Blog Articles: Topic Cluster 3 - GST Audit -->
-  <url>
-    <loc>https://gstrepotis.com/blog/gst-audit-checklist-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://gstrepotis.com/blog/gst-audit-checklist</loc>
   </url>
   <url>
     <loc>https://gstrepotis.com/blog/gst-audit-working-papers</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://gstrepotis.com/blog/gst-itc-audit-procedures</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://gstrepotis.com/blog/bank-statement-to-tally</loc>
   </url>
   <url>
-    <loc>https://gstrepotis.com/blog/gst-sales-reconciliation-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gst-purchase-reconciliation-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gst-audit-preparation-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/common-gst-audit-exceptions</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Blog Articles: Topic Cluster 4 - Accounting Automation -->
-  <url>
-    <loc>https://gstrepotis.com/blog/bank-statement-to-tally-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/bank-statement-pdf-conversion-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/bank-reconciliation-statement-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/accounting-data-automation-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/tally-data-import-xml-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/accounting-workflow-automation</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Blog Articles: Topic Cluster 5 - CA Firm Productivity -->
-  <url>
-    <loc>https://gstrepotis.com/blog/gst-software-for-ca-firms-guide</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://gstrepotis.com/blog/gst-software-for-ca-firms</loc>
   </url>
   <url>
     <loc>https://gstrepotis.com/blog/managing-multiple-gst-clients</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/gst-compliance-workflow-ca-firms</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://gstrepotis.com/blog/client-gst-data-management</loc>
-    <lastmod>2026-10-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
 </urlset>

@@ -1,49 +1,9 @@
-# ============================================================
-# GSTRepotis — Production robots.txt
-# https://gstrepotis.com/
-# ============================================================
-
 User-agent: *
 Allow: /
-Allow: /blog
-Allow: /blog/
-Allow: /gst-software
-Allow: /gst-software-for-ca
-Allow: /gst-software-for-accountants
-Allow: /gst-software-for-business
-Allow: /gst-compliance-software
-Allow: /gst-reconciliation
-Allow: /gstr-1-software
-Allow: /gstr-3b-software
-Allow: /gstr-2b-reconciliation
-Allow: /gst-audit-software
-Allow: /bank-statement-to-tally
-Allow: /tally-integration
-Allow: /pricing
-Allow: /about
-Allow: /contact
-Allow: /privacy-policy
-Allow: /terms-and-conditions
-Allow: /refund-policy
-Allow: /disclaimer
 
-# Disallow authenticated, admin, internal, and private client endpoints
-Disallow: /login
-Disallow: /dashboard
-Disallow: /dashboard/
-Disallow: /clients
-Disallow: /clients/
-Disallow: /gst-audit
-Disallow: /gst-audit/
-Disallow: /pdftotally
-Disallow: /welcome
-Disallow: /profile
-Disallow: /settings
-Disallow: /admin
-Disallow: /admin/
 Disallow: /ceoadmin
 Disallow: /ceoadmin/
-Disallow: /api/
+Disallow: /admin
+Disallow: /admin/
 
-# XML Sitemap Location
 Sitemap: https://gstrepotis.com/sitemap.xml
