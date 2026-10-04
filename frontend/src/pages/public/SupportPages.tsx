@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { SEO } from '../../components/common/SEO';
+import { Breadcrumbs } from '../../components/common/Breadcrumbs';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
-import { Send, CheckCircle2, ArrowRight, ArrowLeft, Clock, BookOpen, Sparkles } from 'lucide-react';
+import { Send, CheckCircle2, ArrowRight, ArrowLeft, Clock, Sparkles, Mail, Phone, MapPin } from 'lucide-react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 
 export interface GuideDetail {
@@ -26,12 +28,12 @@ export const TUTORIALS_DATA: GuideDetail[] = [
     desc: 'Complete step-by-step walkthrough of uploading your HDFC statement, unlocking password-protected PDF files, reviewing extracted debits/credits, and importing vouchers directly into Tally Prime.',
     duration: '4 mins read',
     category: 'Bank Converter',
-    updatedAt: 'August 2026',
-    targetPath: '/products/bank-statement-converter',
+    updatedAt: 'October 2026',
+    targetPath: '/bank-statement-to-tally',
     targetLabel: 'Open Bank Statement Converter',
     prerequisites: [
       'Original HDFC Bank PDF statement (or password if protected)',
-      'Active GST Suite account',
+      'Active GSTRepotis account',
       'Tally Prime or Tally ERP 9 installed on your desktop',
     ],
     steps: [
@@ -42,11 +44,11 @@ export const TUTORIALS_DATA: GuideDetail[] = [
       },
       {
         title: 'Step 2: Enter Password (If Protected)',
-        desc: 'If your HDFC PDF is encrypted with a password (e.g. Customer ID or DOB format), enter the password in the prompt field. GST Suite decrypts the text in-memory without storing raw passwords.',
+        desc: 'If your HDFC PDF is encrypted with a password (e.g. Customer ID or DOB format), enter the password in the prompt field. GSTRepotis decrypts the text in-memory without storing raw passwords.',
       },
       {
         title: 'Step 3: Review Extracted Multi-Page Data Table',
-        desc: 'The AI text parser engine processes all pages in seconds, extracting Transaction Date, Value Date, Narration, Chq/Ref Number, Debit, Credit, and Running Balance.',
+        desc: 'The parser engine processes all pages in seconds, extracting Transaction Date, Value Date, Narration, Chq/Ref Number, Debit, Credit, and Running Balance.',
         tip: 'Use the inline table search bar to filter specific suppliers, Paytm, UPI, or salary payments.',
       },
       {
@@ -61,8 +63,8 @@ export const TUTORIALS_DATA: GuideDetail[] = [
     desc: 'Learn how to export B2B and B2C sales summary files, validate HSN codes, compute Section 9(5) liabilities, and generate official GST portal JSON files.',
     duration: '6 mins read',
     category: 'E-Commerce GSTR-1',
-    updatedAt: 'August 2026',
-    targetPath: '/products/ecommerce-gstr1',
+    updatedAt: 'October 2026',
+    targetPath: '/gstr-1-software',
     targetLabel: 'Open GSTR-1 Engine',
     prerequisites: [
       'Amazon Seller Central / Flipkart Seller Hub account access',
@@ -76,7 +78,7 @@ export const TUTORIALS_DATA: GuideDetail[] = [
         tip: 'Ensure report date range covers the exact tax period (e.g. July 1 to July 31).',
       },
       {
-        title: 'Step 2: Upload Reports to GST Suite GSTR-1 Engine',
+        title: 'Step 2: Upload Reports to GSTRepotis GSTR-1 Engine',
         desc: 'Open the E-Commerce GSTR-1 Engine. Upload your marketplace sales files. The system auto-detects Amazon, Flipkart, Meesho, or Myntra report structures.',
       },
       {
@@ -91,219 +93,242 @@ export const TUTORIALS_DATA: GuideDetail[] = [
   },
   {
     slug: 'tcs-section-95-reconciliation',
-    title: 'Reconciling TCS & Section 9(5) Liability in GST Suite',
+    title: 'Reconciling TCS & Section 9(5) Liability in GSTRepotis',
     desc: 'How to match marketplace deducted Tax Collected at Source (TCS) with GSTR-2B credit filings and verify Electronic Commerce Operator (ECO) liability.',
     duration: '5 mins read',
     category: 'Tax Reconciliation',
-    updatedAt: 'August 2026',
-    targetPath: '/products/ecommerce-gstr1',
+    updatedAt: 'October 2026',
+    targetPath: '/gstr-2b-reconciliation',
     targetLabel: 'Open Tax Reconciliation Workflow',
     prerequisites: [
-      'Monthly TCS certificates issued by marketplaces',
-      'Form 27EQ / GSTR-2B credit statements',
-      'GST Suite E-Commerce Subscription',
+      'GSTR-27O downloaded from GST portal (TCS credit statement)',
+      'Monthly e-commerce marketplace settlement summary report',
     ],
     steps: [
       {
-        title: 'Step 1: Import Monthly TCS Deduction Certificate',
-        desc: 'Upload the TCS deduction statement issued by Amazon, Flipkart, Meesho, or Swiggy/Zomato for the current tax period.',
+        title: 'Step 1: Import GSTR-27O Government TCS Data',
+        desc: 'Upload the monthly TCS statement downloaded from the GST portal showing taxes deducted by Amazon, Flipkart, or Meesho under Section 52.',
       },
       {
-        title: 'Step 2: Segregate Section 9(5) Operator Liabilities',
-        desc: 'For restaurant and specified ECO services under Section 9(5), separate transactions where liability is discharged directly by the platform operator.',
-        tip: 'Section 9(5) transactions must not be double-taxed in your standard GSTR-3B liability computation.',
+        title: 'Step 2: Run Automatic Net Sales vs TCS Match',
+        desc: 'GSTRepotis matches the 1% gross TCS deduction with your declared taxable supplies and highlights any variance caused by returns or shipping charges.',
       },
       {
-        title: 'Step 3: Auto-Match TCS Credits with GSTR-2B',
-        desc: 'Run automated reconciliation between marketplace TCS deductions and credit reflections in your GSTR-2B portal downloads.',
-      },
-      {
-        title: 'Step 4: Export Audit Summary Sheet for CA Certification',
-        desc: 'Download the reconciled Excel audit report with complete discrepancy notes, ready for CA sign-off and annual GST return filings.',
+        title: 'Step 3: Account for Section 9(5) Taxable Supplies',
+        desc: 'Ensure services supplied through e-commerce operators where liability falls on the operator are segregated and reported accurately in Table 3.1.1.',
       },
     ],
   },
 ];
 
 /* ====================================================================
-   1. TUTORIALS LISTING PAGE (/tutorials)
+   1. TUTORIALS LIST PAGE (/tutorials)
    ==================================================================== */
 export const TutorialsPage: React.FC = () => {
-  const navigate = useNavigate();
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const categories = ['All', 'Bank Converter', 'E-Commerce GSTR-1', 'Tax Reconciliation'];
+
+  const filteredTutorials = TUTORIALS_DATA.filter((item) => {
+    const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
+    const matchesSearch =
+      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.desc.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
+  const breadcrumbs = [
+    { label: 'Home', path: '/' },
+    { label: 'Tutorials', path: '/tutorials' },
+  ];
 
   return (
-    <div className="bg-white text-[#111111] py-16 max-w-5xl mx-auto px-4">
-      <Badge variant="outline" className="mb-4">
-        Learning Center
-      </Badge>
-      <h1 className="text-4xl font-extrabold tracking-tight">Tutorials & Step-by-Step Guides</h1>
-      <p className="mt-2 text-sm text-[#666666]">Master bank statement conversions and GSTR-1 filing workflows.</p>
+    <div className="bg-white text-[#111111] py-12 sm:py-16">
+      <SEO
+        title="Tutorials & Step-by-Step Guides | GSTRepotis"
+        description="Comprehensive guides on converting bank statements, preparing GSTR-1 returns, reconciling TCS, and importing vouchers into Tally Prime."
+        canonical="https://gstrepotis.com/tutorials"
+        type="website"
+        breadcrumbs={breadcrumbs}
+      />
 
-      <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
-        {TUTORIALS_DATA.map((tut) => (
-          <Card
-            key={tut.slug}
-            hoverEffect
-            className="p-6 flex flex-col justify-between cursor-pointer group"
-            onClick={() => navigate(`/tutorials/${tut.slug}`)}
-          >
-            <div>
-              <Badge variant="neutral" className="mb-3">
-                {tut.category}
-              </Badge>
-              <h3 className="font-bold text-base text-black group-hover:text-[#555555] transition-colors">{tut.title}</h3>
-              <p className="text-xs text-[#666666] mt-2 leading-relaxed">{tut.desc}</p>
-            </div>
-            <div className="mt-6 pt-4 border-t border-[#E5E5E5] flex items-center justify-between text-xs text-[#666666]">
-              <span>{tut.duration}</span>
-              <Link
-                to={`/tutorials/${tut.slug}`}
-                className="font-bold text-black group-hover:underline flex items-center gap-1"
-                onClick={(e) => e.stopPropagation()}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <Breadcrumbs items={breadcrumbs} className="mb-6" />
+
+        {/* Hero Section */}
+        <div className="max-w-3xl mb-12">
+          <Badge variant="outline" className="mb-3">
+            Knowledge Base
+          </Badge>
+          <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-[#111111]">
+            Step-by-Step Tutorials & Walkthroughs
+          </h1>
+          <p className="mt-4 text-base text-[#555555] leading-relaxed">
+            Detailed procedural documentation to help you master bank statement extraction, GSTR-1 filing payloads, and Tally Prime integrations.
+          </p>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-between items-center pb-8 border-b border-[#E5E5E5] mb-8">
+          <div className="flex flex-wrap gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                  selectedCategory === cat
+                    ? 'bg-black text-white font-bold'
+                    : 'bg-[#F7F7F7] border border-[#E5E5E5] text-[#555555] hover:text-black'
+                }`}
               >
-                Read Guide <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-          </Card>
-        ))}
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="w-full sm:w-64">
+            <input
+              type="text"
+              placeholder="Search tutorials..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white text-xs font-mono text-[#111111] rounded-lg border border-[#D4D4D4] px-3 py-2 outline-none focus:border-black"
+            />
+          </div>
+        </div>
+
+        {/* Tutorials Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {filteredTutorials.map((tut) => (
+            <Card
+              key={tut.slug}
+              className="flex flex-col justify-between p-6 hover:border-black transition-colors group"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold bg-[#F7F7F7] px-2 py-0.5 rounded border border-[#E5E5E5]">
+                    {tut.category}
+                  </span>
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-[#888888]">
+                    <Clock className="w-3 h-3" /> {tut.duration}
+                  </span>
+                </div>
+                <Link to={`/tutorials/${tut.slug}`}>
+                  <h2 className="text-base font-bold text-[#111111] group-hover:underline">{tut.title}</h2>
+                </Link>
+                <p className="mt-2 text-xs text-[#666666] leading-relaxed line-clamp-3">{tut.desc}</p>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-[#E5E5E5] flex items-center justify-between text-xs">
+                <span className="text-[11px] font-mono text-[#888888]">{tut.updatedAt}</span>
+                <Link
+                  to={`/tutorials/${tut.slug}`}
+                  className="font-bold text-black flex items-center gap-1 hover:gap-2 transition-all"
+                >
+                  View Tutorial <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
 };
 
 /* ====================================================================
-   2. DEDICATED TUTORIAL DETAIL PAGE (/tutorials/:slug)
+   2. TUTORIAL DETAIL PAGE (/tutorials/:slug)
    ==================================================================== */
 export const TutorialDetailPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
 
-  const guide = TUTORIALS_DATA.find((g) => g.slug === slug) || TUTORIALS_DATA[0];
+  const tutorial = TUTORIALS_DATA.find((t) => t.slug === slug);
 
-  const otherGuides = TUTORIALS_DATA.filter((g) => g.slug !== guide.slug);
+  if (!tutorial) {
+    return (
+      <div className="py-20 text-center">
+        <h1 className="text-2xl font-bold">Tutorial Not Found</h1>
+        <Button variant="outline" className="mt-4" onClick={() => navigate('/tutorials')}>
+          Back to Tutorials
+        </Button>
+      </div>
+    );
+  }
+
+  const breadcrumbs = [
+    { label: 'Home', path: '/' },
+    { label: 'Tutorials', path: '/tutorials' },
+    { label: tutorial.title, path: `/tutorials/${tutorial.slug}` },
+  ];
 
   return (
-    <div className="bg-white text-[#111111] py-12 min-h-[80vh]">
+    <div className="bg-white text-[#111111] py-12 sm:py-16">
+      <SEO
+        title={`${tutorial.title} | GSTRepotis`}
+        description={tutorial.desc}
+        canonical={`https://gstrepotis.com/tutorials/${tutorial.slug}`}
+        type="article"
+        breadcrumbs={breadcrumbs}
+      />
+
       <div className="max-w-4xl mx-auto px-4 sm:px-6">
-        {/* Back Button */}
-        <Link
-          to="/tutorials"
-          className="inline-flex items-center gap-2 text-xs font-mono font-bold text-[#666666] hover:text-black transition-colors mb-8 group"
-        >
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          Back to All Tutorials
-        </Link>
+        <Breadcrumbs items={breadcrumbs} className="mb-6" />
 
-        {/* Article Meta Header */}
-        <div className="space-y-4 pb-8 border-b border-[#E5E5E5]">
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge variant="neutral">{guide.category}</Badge>
-            <span className="text-xs font-mono text-[#666666] flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" /> {guide.duration}
+        <div className="border-b border-[#E5E5E5] pb-6 mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <Badge variant="outline">{tutorial.category}</Badge>
+            <span className="text-xs font-mono text-[#888888] flex items-center gap-1">
+              <Clock className="w-3 h-3" /> {tutorial.duration}
             </span>
-            <span className="text-xs font-mono text-[#888888]">• Updated {guide.updatedAt}</span>
           </div>
-
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-[#111111] leading-tight">
-            {guide.title}
-          </h1>
-
-          <p className="text-sm sm:text-base text-[#555555] leading-relaxed font-normal">{guide.desc}</p>
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#111111]">{tutorial.title}</h1>
+          <p className="mt-3 text-sm text-[#555555] leading-relaxed">{tutorial.desc}</p>
         </div>
 
-        {/* Prerequisites Box */}
-        <div className="my-8 p-6 bg-[#FAFAFA] border border-[#E5E5E5] rounded-2xl">
-          <h4 className="font-mono text-xs font-bold text-[#111111] uppercase tracking-wider mb-3 flex items-center gap-2">
-            <BookOpen className="w-4 h-4 text-black" /> What You Will Need (Prerequisites)
-          </h4>
-          <ul className="space-y-2 text-xs text-[#555555]">
-            {guide.prerequisites.map((req, idx) => (
-              <li key={idx} className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-black shrink-0" />
-                <span>{req}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* Prerequisites */}
+        {tutorial.prerequisites && (
+          <div className="mb-10 p-5 bg-[#FAFAFA] border border-[#E5E5E5] rounded-xl">
+            <h2 className="text-xs font-mono uppercase font-bold text-[#555555] tracking-wider mb-3">Prerequisites</h2>
+            <ul className="space-y-2 text-xs text-[#111111]">
+              {tutorial.prerequisites.map((p, idx) => (
+                <li key={idx} className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#16A34A] shrink-0" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-        {/* Step-by-Step Instructions */}
-        <div className="space-y-8 my-10">
-          <h2 className="text-xl font-extrabold text-[#111111] tracking-tight">Step-by-Step Implementation Walkthrough</h2>
-
-          <div className="space-y-6">
-            {guide.steps.map((st, idx) => (
-              <div key={idx} className="p-6 bg-white border border-[#E5E5E5] rounded-2xl shadow-2xs space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-black text-white font-mono font-extrabold text-sm flex items-center justify-center shrink-0">
-                    {idx + 1}
-                  </div>
-                  <h3 className="text-base font-bold text-[#111111]">{st.title}</h3>
+        {/* Steps */}
+        <div className="space-y-8">
+          {tutorial.steps.map((st, sidx) => (
+            <div key={sidx} className="p-6 bg-white border border-[#E5E5E5] rounded-xl">
+              <h2 className="text-base font-bold text-[#111111] mb-2">{st.title}</h2>
+              <p className="text-xs sm:text-sm text-[#555555] leading-relaxed">{st.desc}</p>
+              {st.tip && (
+                <div className="mt-3 p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg text-xs text-[#333333] flex items-start gap-2">
+                  <Sparkles className="w-4 h-4 text-black shrink-0 mt-0.5" />
+                  <span><strong>Tip:</strong> {st.tip}</span>
                 </div>
-
-                <p className="text-xs sm:text-sm text-[#555555] leading-relaxed pl-11">{st.desc}</p>
-
-                {st.tip && (
-                  <div className="ml-11 p-3.5 bg-[#FAFAFA] border-l-2 border-black text-xs text-[#333333] rounded-r-lg font-mono flex items-start gap-2">
-                    <Sparkles className="w-4 h-4 text-black shrink-0 mt-0.5" />
-                    <span>
-                      <strong>PRO TIP:</strong> {st.tip}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+          ))}
         </div>
 
-        {/* Call to Action Card */}
-        <div className="my-12 p-8 bg-black text-white rounded-2xl text-center space-y-4 shadow-xl">
-          <h3 className="text-2xl font-extrabold tracking-tight">Ready to Try It Yourself?</h3>
-          <p className="text-xs sm:text-sm text-neutral-400 max-w-md mx-auto">
-            Experience 100% automated bank statement conversion and e-commerce GSTR-1 filings on GST Suite.
-          </p>
-          <div className="pt-2">
-            <Button
-              variant="outline"
-              size="lg"
-              className="bg-white !text-black hover:bg-neutral-100 font-bold border-white"
-              rightIcon={<ArrowRight className="w-4 h-4" />}
-              onClick={() => navigate(guide.targetPath)}
-            >
-              {guide.targetLabel}
+        <div className="mt-12 pt-6 border-t border-[#E5E5E5] flex justify-between items-center">
+          <Link to="/tutorials">
+            <Button variant="outline" size="sm" leftIcon={<ArrowLeft className="w-3.5 h-3.5" />}>
+              All Tutorials
             </Button>
-          </div>
-        </div>
-
-        {/* Other Recommended Tutorials */}
-        <div className="pt-10 border-t border-[#E5E5E5] space-y-6">
-          <h3 className="text-lg font-extrabold text-[#111111]">Other Recommended Guides</h3>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {otherGuides.map((og) => (
-              <Card
-                key={og.slug}
-                hoverEffect
-                className="p-5 flex flex-col justify-between cursor-pointer group"
-                onClick={() => {
-                  window.scrollTo(0, 0);
-                  navigate(`/tutorials/${og.slug}`);
-                }}
-              >
-                <div>
-                  <Badge variant="neutral" className="mb-2">
-                    {og.category}
-                  </Badge>
-                  <h4 className="font-bold text-sm text-black group-hover:text-[#555555] transition-colors">{og.title}</h4>
-                </div>
-                <div className="mt-4 pt-3 border-t border-[#E5E5E5] flex items-center justify-between text-xs text-[#666666]">
-                  <span>{og.duration}</span>
-                  <span className="font-bold text-black group-hover:underline flex items-center gap-1">
-                    Read <ArrowRight className="w-3 h-3" />
-                  </span>
-                </div>
-              </Card>
-            ))}
-          </div>
+          </Link>
+          <Link to={tutorial.targetPath}>
+            <Button variant="primary" size="sm" rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
+              {tutorial.targetLabel}
+            </Button>
+          </Link>
         </div>
       </div>
     </div>
@@ -316,51 +341,105 @@ export const TutorialDetailPage: React.FC = () => {
 export const ContactPage: React.FC = () => {
   const [submitted, setSubmitted] = useState(false);
 
+  const breadcrumbs = [
+    { label: 'Home', path: '/' },
+    { label: 'Contact', path: '/contact' },
+  ];
+
   return (
-    <div className="bg-white text-[#111111] py-16 max-w-4xl mx-auto px-4">
+    <div className="bg-white text-[#111111] py-12 sm:py-16 max-w-4xl mx-auto px-4 sm:px-6">
+      <SEO
+        title="Contact GSTRepotis Support & Sales | GSTRepotis"
+        description="Get in touch with the GSTRepotis team for technical assistance, enterprise inquiries, bank conversion support, or demo requests."
+        canonical="https://gstrepotis.com/contact"
+        type="website"
+        breadcrumbs={breadcrumbs}
+      />
+
+      <Breadcrumbs items={breadcrumbs} className="mb-6" />
+
       <div className="text-center max-w-xl mx-auto mb-12">
         <Badge variant="outline" className="mb-3">
-          Support & Help
+          Support & Assistance
         </Badge>
-        <h1 className="text-4xl font-extrabold tracking-tight">Contact Support</h1>
-        <p className="mt-2 text-xs text-[#666666]">Have questions about your bank statement or GSTR-1 files? We are here to help.</p>
+        <h1 className="text-4xl font-extrabold tracking-tight text-[#111111]">Contact GSTRepotis Support</h1>
+        <p className="mt-2 text-sm text-[#666666]">
+          Have questions about bank statement formats, GSTR-2B reconciliations, or practice subscriptions? We are here to help.
+        </p>
       </div>
 
-      <Card className="p-8">
-        {submitted ? (
-          <div className="text-center py-12">
-            <CheckCircle2 className="w-12 h-12 text-[#16A34A] mx-auto mb-3" />
-            <h3 className="text-xl font-bold">Thank You!</h3>
-            <p className="text-xs text-[#666666] mt-1">Our support team will respond to your message within 2 hours.</p>
-          </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSubmitted(true);
-            }}
-            className="space-y-4"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="Full Name" placeholder="CA Rajesh Sharma" required />
-              <Input label="Email Address" type="email" placeholder="rajesh@ca-firm.com" required />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Contact Info Sidebar */}
+        <div className="space-y-4">
+          <Card className="p-5 bg-[#FAFAFA] border border-[#E5E5E5]">
+            <div className="flex items-center gap-3 mb-2">
+              <Mail className="w-4 h-4 text-black" />
+              <h2 className="text-xs font-bold text-black uppercase tracking-wider">Email Support</h2>
             </div>
-            <Input label="Mobile Number" placeholder="+91 98765 43210" required />
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">Message</label>
-              <textarea
-                rows={4}
-                required
-                placeholder="How can we assist with your bank statement or GST workflow?"
-                className="w-full bg-white text-xs text-[#111111] rounded-xl border border-[#E5E5E5] p-3 outline-none focus:border-black"
-              />
+            <p className="text-xs text-[#555555]">support@gstrepotis.com</p>
+            <p className="text-[11px] text-[#888888] mt-1">Average response within 2 hours</p>
+          </Card>
+
+          <Card className="p-5 bg-[#FAFAFA] border border-[#E5E5E5]">
+            <div className="flex items-center gap-3 mb-2">
+              <Phone className="w-4 h-4 text-black" />
+              <h2 className="text-xs font-bold text-black uppercase tracking-wider">Business Hours</h2>
             </div>
-            <Button type="submit" variant="primary" className="w-full" rightIcon={<Send className="w-4 h-4" />}>
-              Send Message
-            </Button>
-          </form>
-        )}
-      </Card>
+            <p className="text-xs text-[#555555]">Monday to Saturday</p>
+            <p className="text-[11px] text-[#888888] mt-1">9:30 AM – 6:30 PM IST</p>
+          </Card>
+
+          <Card className="p-5 bg-[#FAFAFA] border border-[#E5E5E5]">
+            <div className="flex items-center gap-3 mb-2">
+              <MapPin className="w-4 h-4 text-black" />
+              <h2 className="text-xs font-bold text-black uppercase tracking-wider">Location</h2>
+            </div>
+            <p className="text-xs text-[#555555]">Gujarat, India</p>
+            <p className="text-[11px] text-[#888888] mt-1">Indian GST & Accounting Focus</p>
+          </Card>
+        </div>
+
+        {/* Contact Form */}
+        <div className="md:col-span-2">
+          <Card className="p-8">
+            {submitted ? (
+              <div className="text-center py-12">
+                <CheckCircle2 className="w-12 h-12 text-[#16A34A] mx-auto mb-3" />
+                <h3 className="text-xl font-bold text-[#111111]">Message Received</h3>
+                <p className="text-xs text-[#666666] mt-1">Our technical support team will contact you shortly.</p>
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setSubmitted(true);
+                }}
+                className="space-y-4"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input label="Full Name" placeholder="CA Rajesh Sharma" required />
+                  <Input label="Email Address" type="email" placeholder="rajesh@ca-firm.com" required />
+                </div>
+                <Input label="Mobile / WhatsApp Number" placeholder="+91 98765 43210" required />
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#111111] mb-1.5">
+                    How can we help?
+                  </label>
+                  <textarea
+                    rows={4}
+                    required
+                    placeholder="Describe your inquiry (e.g. bank PDF support, multi-client workspace, or billing)..."
+                    className="w-full bg-white text-xs text-[#111111] rounded-xl border border-[#E5E5E5] p-3 outline-none focus:border-black"
+                  />
+                </div>
+                <Button type="submit" variant="primary" className="w-full" rightIcon={<Send className="w-4 h-4" />}>
+                  Send Message
+                </Button>
+              </form>
+            )}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 };
@@ -371,22 +450,37 @@ export const ContactPage: React.FC = () => {
 export const RequestDemoPage: React.FC = () => {
   const [submitted, setSubmitted] = useState(false);
 
+  const breadcrumbs = [
+    { label: 'Home', path: '/' },
+    { label: 'Request Demo', path: '/request-demo' },
+  ];
+
   return (
-    <div className="bg-white text-[#111111] py-16 max-w-xl mx-auto px-4 text-center">
+    <div className="bg-white text-[#111111] py-12 sm:py-16 max-w-xl mx-auto px-4 text-center">
+      <SEO
+        title="Schedule a Personalized Demo | GSTRepotis"
+        description="Book a live walkthrough of GSTRepotis with our product team. Discover how to streamline bank conversions and GST reconciliations."
+        canonical="https://gstrepotis.com/request-demo"
+        type="website"
+        breadcrumbs={breadcrumbs}
+      />
+
+      <Breadcrumbs items={breadcrumbs} className="mb-6 justify-center" />
+
       <Badge variant="outline" className="mb-3">
         Live Walkthrough
       </Badge>
-      <h1 className="text-3xl font-extrabold tracking-tight">Request a Personalized Demo</h1>
-      <p className="mt-2 text-xs text-[#666666] mb-8">
-        See how GST Suite automates bank statement extraction & GSTR-1 files for your firm.
+      <h1 className="text-3xl font-extrabold tracking-tight text-[#111111]">Request a Live Platform Demo</h1>
+      <p className="mt-2 text-xs sm:text-sm text-[#666666] mb-8">
+        See how GSTRepotis automates bank statement extraction, GSTR-2B matching, and Tally XML vouchers for your firm.
       </p>
 
       <Card className="p-8 text-left">
         {submitted ? (
           <div className="text-center py-8">
             <CheckCircle2 className="w-12 h-12 text-[#16A34A] mx-auto mb-3" />
-            <h3 className="text-lg font-bold">Demo Scheduled!</h3>
-            <p className="text-xs text-[#666666] mt-1">Our product specialist will get in touch shortly.</p>
+            <h3 className="text-lg font-bold text-[#111111]">Demo Scheduled!</h3>
+            <p className="text-xs text-[#666666] mt-1">Our product specialist will contact you to confirm the time.</p>
           </div>
         ) : (
           <form
@@ -398,10 +492,10 @@ export const RequestDemoPage: React.FC = () => {
           >
             <Input label="Full Name" placeholder="CA Rajesh Sharma" required />
             <Input label="Work Email" type="email" placeholder="rajesh@ca-firm.com" required />
-            <Input label="Mobile Number" placeholder="+91 98765 43210" required />
+            <Input label="Mobile / WhatsApp Number" placeholder="+91 98765 43210" required />
             <Input label="Firm / Business Name" placeholder="Sharma & Associates CAs" required />
             <Button type="submit" variant="primary" className="w-full">
-              Schedule Demo Call
+              Schedule Live Walkthrough
             </Button>
           </form>
         )}

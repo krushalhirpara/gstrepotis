@@ -8,6 +8,7 @@ import { logout } from '../../services/authService';
 export const Header: React.FC = () => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isProductsOpen, setIsProductsOpen] = useState(false);
+  const [isSolutionsOpen, setIsSolutionsOpen] = useState(false);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const location = useLocation();
 
@@ -31,47 +32,97 @@ export const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex items-center justify-between">
         {/* Logo Left */}
         <Link to="/" className="flex items-center group">
-          <img src="/gstrepotis.png" alt="GST Suite Logo" className="h-8 md:h-[38px] w-auto object-contain drop-shadow-xs transition-transform hover:scale-105" />
+          <img src="/gstrepotis.png" alt="GSTRepotis Logo" className="h-8 md:h-[38px] w-auto object-contain drop-shadow-xs transition-transform hover:scale-105" />
         </Link>
 
         {/* Navigation Center */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-[#111111]">
+        <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-[#111111]">
+          {/* Products Dropdown */}
           <div className="relative" onMouseEnter={() => setIsProductsOpen(true)} onMouseLeave={() => setIsProductsOpen(false)}>
             <button className="flex items-center gap-1.5 hover:text-black py-2 cursor-pointer transition-colors font-medium text-xs tracking-tight">
               Products <ChevronDown className="w-3.5 h-3.5 text-[#555555]" />
             </button>
             {isProductsOpen && (
-              <div className="absolute top-full left-0 w-72 bg-white border border-[#E5E5E5] rounded-xl shadow-xl p-2 animate-in fade-in duration-150">
+              <div className="absolute top-full left-0 w-80 bg-white border border-[#E5E5E5] rounded-xl shadow-xl p-2 animate-in fade-in duration-150 z-50">
                 <Link
-                  to="/products/bank-statement-converter"
-                  className="block p-3 rounded-lg hover:bg-[#F7F7F7] transition-colors"
+                  to="/bank-statement-to-tally"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors"
                 >
-                  <p className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold mb-0.5">BANK STATEMENT / 01</p>
-                  <p className="text-xs font-bold text-[#111111]">PDF to Excel & Tally XML</p>
-                  <p className="text-[11px] text-[#555555] mt-0.5">18+ Indian Banks & Password PDF</p>
+                  <p className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold mb-0.5">BANK CONVERTER / 01</p>
+                  <p className="text-xs font-bold text-[#111111]">Bank Statement to Tally</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">18+ Indian Banks & Direct Tally XML</p>
                 </Link>
                 <Link
-                  to="/products/ecommerce-gstr1"
-                  className="block p-3 rounded-lg hover:bg-[#F7F7F7] transition-colors mt-1"
+                  to="/gstr-2b-reconciliation"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors mt-0.5"
                 >
-                  <p className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold mb-0.5">GSTR-1 ENGINE / 02</p>
-                  <p className="text-xs font-bold text-[#111111]">Marketplace Sales to GST JSON</p>
-                  <p className="text-[11px] text-[#555555] mt-0.5">Amazon, Flipkart, TCS & Sec 9(5)</p>
+                  <p className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold mb-0.5">ITC OPTIMIZATION / 02</p>
+                  <p className="text-xs font-bold text-[#111111]">GSTR-2B Reconciliation</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">Purchase register vs 2B matching</p>
+                </Link>
+                <Link
+                  to="/gstr-1-software"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors mt-0.5"
+                >
+                  <p className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold mb-0.5">OUTWARD SUPPLIES / 03</p>
+                  <p className="text-xs font-bold text-[#111111]">GSTR-1 Software</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">Marketplace sales to GST JSON</p>
+                </Link>
+                <Link
+                  to="/gst-audit-software"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors mt-0.5"
+                >
+                  <p className="font-mono text-[10px] text-[#555555] uppercase tracking-wider font-bold mb-0.5">AUDIT WORKSPACE / 04</p>
+                  <p className="text-xs font-bold text-[#111111]">GST Audit Software</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">Working papers & compliance review</p>
                 </Link>
               </div>
             )}
           </div>
-          <Link to="/products/ecommerce-gstr1" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
-            Solutions
-          </Link>
-          <Link to="/#how-it-works" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
-            How It Works
+
+          {/* Solutions Dropdown */}
+          <div className="relative" onMouseEnter={() => setIsSolutionsOpen(true)} onMouseLeave={() => setIsSolutionsOpen(false)}>
+            <button className="flex items-center gap-1.5 hover:text-black py-2 cursor-pointer transition-colors font-medium text-xs tracking-tight">
+              Solutions <ChevronDown className="w-3.5 h-3.5 text-[#555555]" />
+            </button>
+            {isSolutionsOpen && (
+              <div className="absolute top-full left-0 w-72 bg-white border border-[#E5E5E5] rounded-xl shadow-xl p-2 animate-in fade-in duration-150 z-50">
+                <Link
+                  to="/gst-software-for-ca"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors"
+                >
+                  <p className="text-xs font-bold text-[#111111]">For CA Firms</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">Manage multi-client GST compliance</p>
+                </Link>
+                <Link
+                  to="/gst-software-for-accountants"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors mt-0.5"
+                >
+                  <p className="text-xs font-bold text-[#111111]">For Accountants</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">Speed up bank conversion & returns</p>
+                </Link>
+                <Link
+                  to="/gst-software-for-business"
+                  className="block p-2.5 rounded-lg hover:bg-[#F7F7F7] transition-colors mt-0.5"
+                >
+                  <p className="text-xs font-bold text-[#111111]">For Businesses & SMEs</p>
+                  <p className="text-[11px] text-[#555555] mt-0.5">Protect ITC and automate Tally</p>
+                </Link>
+              </div>
+            )}
+          </div>
+
+          <Link to="/gst-reconciliation" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
+            Reconciliation
           </Link>
           <Link to="/pricing" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
             Pricing
           </Link>
-          <Link to="/tutorials" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
-            Resources
+          <Link to="/blog" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
+            Blog & Guides
+          </Link>
+          <Link to="/about" className="hover:text-black transition-colors text-xs font-medium tracking-tight">
+            About
           </Link>
         </nav>
 
@@ -126,35 +177,53 @@ export const Header: React.FC = () => {
         <button
           onClick={() => setIsMobileOpen(true)}
           className="md:hidden p-2 rounded-lg text-[#111111] hover:bg-[#F7F7F7] cursor-pointer"
+          aria-label="Open Navigation Menu"
         >
           <Menu className="w-6 h-6" />
         </button>
       </div>
 
       <Drawer isOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} title="NAVIGATION">
-        <div className="flex flex-col gap-4 text-xs font-mono font-medium">
+        <div className="flex flex-col gap-3 text-xs font-mono font-medium">
           <Link
-            to="/products/bank-statement-converter"
+            to="/gst-software"
             onClick={() => setIsMobileOpen(false)}
             className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
           >
-            01 / BANK STATEMENT CONVERTER
+            01 / GST SOFTWARE OVERVIEW
           </Link>
           <Link
-            to="/products/ecommerce-gstr1"
+            to="/bank-statement-to-tally"
             onClick={() => setIsMobileOpen(false)}
             className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
           >
-            02 / E-COMMERCE GSTR-1 ENGINE
+            02 / BANK STATEMENT CONVERTER
+          </Link>
+          <Link
+            to="/gstr-2b-reconciliation"
+            onClick={() => setIsMobileOpen(false)}
+            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
+          >
+            03 / GSTR-2B RECONCILIATION
+          </Link>
+          <Link
+            to="/gst-audit-software"
+            onClick={() => setIsMobileOpen(false)}
+            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
+          >
+            04 / GST AUDIT SOFTWARE
           </Link>
           <Link to="/pricing" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
-            03 / PRICING & PLANS
+            05 / PRICING & PLANS
           </Link>
-          <Link to="/tutorials" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
-            04 / TUTORIALS & RESOURCES
+          <Link to="/blog" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
+            06 / BLOG & GUIDES
           </Link>
           <Link to="/about" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
-            05 / ABOUT GST SUITE
+            07 / ABOUT GSTREPOTIS
+          </Link>
+          <Link to="/contact" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
+            08 / CONTACT SUPPORT
           </Link>
 
           <div className="pt-6 flex flex-col gap-3">
@@ -197,50 +266,83 @@ export const Footer: React.FC = () => {
     <footer className="bg-white border-t border-[#E5E5E5] pt-16 pb-12 text-[#111111]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-10 mb-12">
+          {/* Brand Col */}
           <div className="md:col-span-2">
             <div className="flex items-center mb-4">
-              <img src="/gstrepotis.png" alt="GST Suite Logo" className="h-9 w-auto object-contain" />
+              <img src="/gstrepotis.png" alt="GSTRepotis Logo" className="h-9 w-auto object-contain" />
             </div>
             <p className="text-xs text-[#555555] leading-relaxed max-w-sm">
-              Professional financial accounting infrastructure for Indian Chartered Accountants, tax professionals, and e-commerce merchants.
+              All-in-one GST compliance and accounting automation software built for Indian Chartered Accountants, tax practitioners, and growing businesses.
             </p>
             <div className="mt-4 flex items-center gap-2 text-[11px] font-mono text-[#555555] bg-[#F7F7F7] border border-[#E5E5E5] px-3 py-1.5 rounded-lg w-fit">
-              ISO 27001 ENCRYPTION • TALLY PRIME READY
+              TALLY PRIME READY • SECTION 16(2)(AA) COMPLIANT
             </div>
           </div>
 
+          {/* Product Col */}
           <div>
-            <h4 className="tech-label mb-4">PRODUCTS</h4>
+            <h4 className="tech-label mb-4">PRODUCT</h4>
             <ul className="space-y-2.5 text-xs text-[#555555]">
               <li>
-                <Link to="/products/bank-statement-converter" className="hover:text-black transition-colors">
-                  Bank Converter
+                <Link to="/gst-software" className="hover:text-black transition-colors">
+                  GST Software
                 </Link>
               </li>
               <li>
-                <Link to="/products/ecommerce-gstr1" className="hover:text-black transition-colors">
-                  E-Commerce GSTR-1
+                <Link to="/gst-reconciliation" className="hover:text-black transition-colors">
+                  GST Reconciliation
                 </Link>
               </li>
               <li>
-                <Link to="/pricing" className="hover:text-black transition-colors">
-                  Tally XML Engine
+                <Link to="/gstr-1-software" className="hover:text-black transition-colors">
+                  GSTR-1 Software
                 </Link>
               </li>
               <li>
-                <Link to="/pricing" className="hover:text-black transition-colors">
-                  TCS Reconciliation
+                <Link to="/gstr-3b-software" className="hover:text-black transition-colors">
+                  GSTR-3B Software
+                </Link>
+              </li>
+              <li>
+                <Link to="/gstr-2b-reconciliation" className="hover:text-black transition-colors">
+                  GSTR-2B Reconciliation
+                </Link>
+              </li>
+              <li>
+                <Link to="/gst-audit-software" className="hover:text-black transition-colors">
+                  GST Audit Software
+                </Link>
+              </li>
+              <li>
+                <Link to="/bank-statement-to-tally" className="hover:text-black transition-colors">
+                  Bank Statement to Tally
+                </Link>
+              </li>
+              <li>
+                <Link to="/tally-integration" className="hover:text-black transition-colors">
+                  Tally Integration
                 </Link>
               </li>
             </ul>
           </div>
 
+          {/* Company Col */}
           <div>
             <h4 className="tech-label mb-4">COMPANY</h4>
             <ul className="space-y-2.5 text-xs text-[#555555]">
               <li>
                 <Link to="/about" className="hover:text-black transition-colors">
-                  About Infrastructure
+                  About GSTRepotis
+                </Link>
+              </li>
+              <li>
+                <Link to="/pricing" className="hover:text-black transition-colors">
+                  Pricing & Plans
+                </Link>
+              </li>
+              <li>
+                <Link to="/blog" className="hover:text-black transition-colors">
+                  Tax & GST Blog
                 </Link>
               </li>
               <li>
@@ -261,17 +363,18 @@ export const Footer: React.FC = () => {
             </ul>
           </div>
 
+          {/* Legal Col */}
           <div>
-            <h4 className="tech-label mb-4">LEGAL & SAFETY</h4>
+            <h4 className="tech-label mb-4">LEGAL</h4>
             <ul className="space-y-2.5 text-xs text-[#555555]">
               <li>
-                <Link to="/terms" className="hover:text-black transition-colors">
-                  Terms of Service
+                <Link to="/privacy-policy" className="hover:text-black transition-colors">
+                  Privacy Policy
                 </Link>
               </li>
               <li>
-                <Link to="/privacy" className="hover:text-black transition-colors">
-                  Privacy Policy
+                <Link to="/terms-and-conditions" className="hover:text-black transition-colors">
+                  Terms of Service
                 </Link>
               </li>
               <li>
@@ -279,16 +382,21 @@ export const Footer: React.FC = () => {
                   Refund Policy
                 </Link>
               </li>
+              <li>
+                <Link to="/disclaimer" className="hover:text-black transition-colors">
+                  Legal Disclaimer
+                </Link>
+              </li>
             </ul>
           </div>
         </div>
 
         <div className="pt-8 border-t border-[#E5E5E5] flex flex-col sm:flex-row items-center justify-between text-xs text-[#555555] gap-4 font-mono">
-          <p>© {new Date().getFullYear()} GST Suite Infrastructure. Light Theme Only.</p>
+          <p>© {new Date().getFullYear()} GSTRepotis. All rights reserved.</p>
           <div className="flex items-center gap-4 text-[#888888]">
-            <span>PDF ENGINE v2.4</span>
+            <span>BANK PARSER v2.4</span>
             <span>|</span>
-            <span>GSTR-1 JSON SCHEMA 2026</span>
+            <span>GSTR SCHEMA 2026</span>
           </div>
         </div>
       </div>
