@@ -159,9 +159,9 @@ export const GstAuditWorkspace: React.FC = () => {
   };
 
   return (
-    <div className="p-4 sm:p-8 space-y-6">
+    <div className="space-y-6">
       {/* Top Breadcrumb & Action Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 border border-[#E5E5E5] rounded-2xl shadow-xs">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 sm:p-5 border border-[#E5E5E5] rounded-2xl shadow-xs">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 text-xs text-[#888888]">
             <button
@@ -176,8 +176,8 @@ export const GstAuditWorkspace: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-xl font-black text-[#111111] tracking-tight flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-black" />
-              {audit.client?.trade_name || audit.audit_name}
+              <Building2 className="w-5 h-5 text-black shrink-0" />
+              <span className="truncate">{audit.client?.trade_name || audit.audit_name}</span>
             </h1>
             <span className="font-mono text-xs px-2 py-0.5 bg-[#F0F0F0] text-[#333333] rounded-md font-bold">
               {audit.gstin}
@@ -190,13 +190,13 @@ export const GstAuditWorkspace: React.FC = () => {
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0">
           <Button
             variant="primary"
             size="md"
             onClick={handleRunProcessing}
             disabled={processing}
-            className="flex items-center gap-2 shadow-xs cursor-pointer"
+            className="flex items-center justify-center gap-2 shadow-xs cursor-pointer w-full md:w-auto text-xs"
           >
             {processing ? (
               <>

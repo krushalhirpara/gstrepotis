@@ -227,10 +227,11 @@ export const ClientListPage: React.FC = () => {
         </div>
 
         {/* Top Header Buttons */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           <Button
             variant="outline"
             size="md"
+            className="flex-1 sm:flex-none text-xs"
             leftIcon={<Upload className="w-4 h-4" />}
             onClick={() => setIsBulkModalOpen(true)}
           >
@@ -240,6 +241,7 @@ export const ClientListPage: React.FC = () => {
           <Button
             variant="primary"
             size="md"
+            className="flex-1 sm:flex-none text-xs"
             leftIcon={<Plus className="w-4 h-4" />}
             onClick={() => {
               setClientToEdit(null);

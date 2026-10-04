@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -32,7 +32,7 @@ export const Input: React.FC<InputProps> = ({
         </div>
       )}
       <div className="relative flex items-center">
-        {leftIcon && <div className="absolute left-3.5 text-[#555555]">{leftIcon}</div>}
+        {leftIcon && <div className="absolute left-3.5 text-[#555555] pointer-events-none">{leftIcon}</div>}
         <input
           className={`w-full h-11 bg-white text-xs font-medium text-[#111111] placeholder-[#999999] rounded-lg border border-[#D4D4D4] ${
             leftIcon ? 'pl-10' : 'px-3.5'
@@ -112,6 +112,25 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isOpen]);
 
   const selectedOpt = options.find((o) => o.value === value);
   const filtered = options.filter(
@@ -121,7 +140,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   );
 
   return (
-    <div className="w-full space-y-1.5 relative">
+    <div ref={containerRef} className="w-full space-y-1.5 relative">
       {label && (
         <label className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#555555]">
           {label}

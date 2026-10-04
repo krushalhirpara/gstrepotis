@@ -112,11 +112,12 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({ isOpen, onClos
               helperText={selectedFile ? `Selected File: ${selectedFile.name}` : 'Supports CSV, XLSX or XLS files up to 10MB'}
             />
 
-            <div className="pt-4 border-t border-[#E5E5E5] flex items-center justify-end gap-3">
+            <div className="pt-4 border-t border-[#E5E5E5] flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3">
               <Button
                 type="button"
                 variant="outline"
                 size="md"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   handleReset();
                   onClose();
@@ -129,6 +130,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({ isOpen, onClos
                 type="button"
                 variant="primary"
                 size="md"
+                className="w-full sm:w-auto"
                 isLoading={isLoading}
                 disabled={!selectedFile}
                 leftIcon={<Upload className="w-4 h-4" />}
@@ -152,7 +154,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({ isOpen, onClos
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-4 gap-3 text-center font-mono">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center font-mono">
               <div className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl">
                 <span className="text-[10px] text-[#666666] uppercase block font-bold">TOTAL ROWS</span>
                 <span className="text-lg font-extrabold text-black">{result.summary.total_records}</span>
@@ -188,7 +190,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({ isOpen, onClos
             )}
 
             <div className="pt-4 border-t border-[#E5E5E5] flex items-center justify-end gap-3">
-              <Button type="button" variant="primary" size="md" onClick={() => { handleReset(); onClose(); }}>
+              <Button type="button" variant="primary" size="md" className="w-full sm:w-auto" onClick={() => { handleReset(); onClose(); }}>
                 Done & View Clients List
               </Button>
             </div>

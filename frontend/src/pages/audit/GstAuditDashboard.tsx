@@ -99,12 +99,12 @@ export const GstAuditDashboard: React.FC = () => {
   };
 
   return (
-    <div className="p-4 sm:p-8 space-y-6">
+    <div className="space-y-6">
       {/* Header with Title & Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-black" />
+            <ShieldCheck className="w-6 h-6 text-black shrink-0" />
             <h1 className="text-xl sm:text-2xl font-black text-[#111111] tracking-tight">
               GST Audit & Reconciliation Workspace
             </h1>
@@ -117,7 +117,7 @@ export const GstAuditDashboard: React.FC = () => {
         <Button
           variant="primary"
           onClick={() => setIsNewAuditModalOpen(true)}
-          className="flex items-center gap-2 self-start sm:self-auto cursor-pointer shadow-xs"
+          className="flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer shadow-xs text-xs"
         >
           <Plus className="w-4 h-4" /> Start New Audit
         </Button>

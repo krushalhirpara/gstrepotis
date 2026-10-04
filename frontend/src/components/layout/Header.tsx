@@ -23,12 +23,12 @@ export const Header: React.FC = () => {
     window.location.href = '/login';
   };
 
-  const isDashboard = ['/dashboard', '/admin', '/pdftotally', '/clients'].some(path => location.pathname.startsWith(path));
+  const isDashboard = ['/dashboard', '/admin', '/pdftotally', '/clients', '/gst-audit'].some(path => location.pathname.startsWith(path));
 
   if (isDashboard) return null;
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#E5E5E5] transition-all h-20 flex items-center">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#E5E5E5] transition-all h-16 sm:h-20 flex items-center">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex items-center justify-between">
         {/* Logo Left */}
         <Link to="/" className="flex items-center group">
@@ -135,7 +135,7 @@ export const Header: React.FC = () => {
                   onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
                   className="flex items-center gap-2 mr-2 cursor-pointer hover:opacity-85 transition-opacity py-2 focus:outline-none"
                 >
-                  <div className="w-8 h-8 rounded bg-black text-white font-mono font-bold text-xs flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-lg bg-black text-white font-mono font-bold text-xs flex items-center justify-center">
                     {user.name.substring(0, 2).toUpperCase()}
                   </div>
                   <span className="text-sm font-bold text-[#111111]">{user.name}</span>
@@ -176,7 +176,7 @@ export const Header: React.FC = () => {
 
         <button
           onClick={() => setIsMobileOpen(true)}
-          className="md:hidden p-2 rounded-lg text-[#111111] hover:bg-[#F7F7F7] cursor-pointer"
+          className="md:hidden p-2 rounded-lg text-[#111111] hover:bg-[#F7F7F7] cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center -mr-1"
           aria-label="Open Navigation Menu"
         >
           <Menu className="w-6 h-6" />
@@ -184,53 +184,53 @@ export const Header: React.FC = () => {
       </div>
 
       <Drawer isOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} title="NAVIGATION">
-        <div className="flex flex-col gap-3 text-xs font-mono font-medium">
+        <div className="flex flex-col gap-2.5 text-xs font-mono font-medium">
           <Link
             to="/gst-software"
             onClick={() => setIsMobileOpen(false)}
-            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
+            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl font-bold text-[#111111] hover:bg-neutral-100 transition-colors"
           >
             01 / GST SOFTWARE OVERVIEW
           </Link>
           <Link
             to="/bank-statement-to-tally"
             onClick={() => setIsMobileOpen(false)}
-            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
+            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl font-bold text-[#111111] hover:bg-neutral-100 transition-colors"
           >
             02 / BANK STATEMENT CONVERTER
           </Link>
           <Link
             to="/gstr-2b-reconciliation"
             onClick={() => setIsMobileOpen(false)}
-            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
+            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl font-bold text-[#111111] hover:bg-neutral-100 transition-colors"
           >
             03 / GSTR-2B RECONCILIATION
           </Link>
           <Link
             to="/gst-audit-software"
             onClick={() => setIsMobileOpen(false)}
-            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg font-bold text-[#111111]"
+            className="p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl font-bold text-[#111111] hover:bg-neutral-100 transition-colors"
           >
             04 / GST AUDIT SOFTWARE
           </Link>
-          <Link to="/pricing" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
+          <Link to="/pricing" onClick={() => setIsMobileOpen(false)} className="py-3 px-1 border-b border-[#E5E5E5] font-bold text-[#111111]">
             05 / PRICING & PLANS
           </Link>
-          <Link to="/blog" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
+          <Link to="/blog" onClick={() => setIsMobileOpen(false)} className="py-3 px-1 border-b border-[#E5E5E5] font-bold text-[#111111]">
             06 / BLOG & GUIDES
           </Link>
-          <Link to="/about" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
+          <Link to="/about" onClick={() => setIsMobileOpen(false)} className="py-3 px-1 border-b border-[#E5E5E5] font-bold text-[#111111]">
             07 / ABOUT GSTREPOTIS
           </Link>
-          <Link to="/contact" onClick={() => setIsMobileOpen(false)} className="py-2.5 border-b border-[#E5E5E5] font-bold">
+          <Link to="/contact" onClick={() => setIsMobileOpen(false)} className="py-3 px-1 border-b border-[#E5E5E5] font-bold text-[#111111]">
             08 / CONTACT SUPPORT
           </Link>
 
-          <div className="pt-6 flex flex-col gap-3">
+          <div className="pt-4 flex flex-col gap-3">
             {isLoggedIn ? (
               <>
-                <div className="flex items-center gap-3 p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-lg mb-2">
-                  <div className="w-10 h-10 rounded bg-black text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">
+                <div className="flex items-center gap-3 p-3 bg-[#F7F7F7] border border-[#E5E5E5] rounded-xl mb-1">
+                  <div className="w-10 h-10 rounded-lg bg-black text-white font-mono font-bold text-sm flex items-center justify-center shrink-0">
                     {user.name.substring(0, 2).toUpperCase()}
                   </div>
                   <div className="truncate">
@@ -239,14 +239,14 @@ export const Header: React.FC = () => {
                   </div>
                 </div>
                 <Link to="/dashboard" onClick={() => setIsMobileOpen(false)}>
-                  <Button variant="primary" className="w-full">
+                  <Button variant="primary" className="w-full py-3">
                     Go to Dashboard
                   </Button>
                 </Link>
               </>
             ) : (
               <Link to="/login" onClick={() => setIsMobileOpen(false)}>
-                <Button variant="primary" className="w-full">
+                <Button variant="primary" className="w-full py-3">
                   Sign In
                 </Button>
               </Link>
@@ -260,7 +260,8 @@ export const Header: React.FC = () => {
 
 export const Footer: React.FC = () => {
   const location = useLocation();
-  if (location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/admin')) return null;
+  const isDashboard = ['/dashboard', '/admin', '/pdftotally', '/clients', '/gst-audit'].some(path => location.pathname.startsWith(path));
+  if (isDashboard) return null;
 
   return (
     <footer className="bg-white border-t border-[#E5E5E5] pt-16 pb-12 text-[#111111]">

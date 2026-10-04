@@ -66,50 +66,50 @@ export const GstAuditReportTab: React.FC<GstAuditReportTabProps> = ({ audit }) =
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Action Header (Hidden during print) */}
-      <div className="p-4 bg-white border border-[#E5E5E5] rounded-2xl flex items-center justify-between print:hidden">
+      <div className="p-4 bg-white border border-[#E5E5E5] rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
         <div>
           <h3 className="text-sm font-bold text-[#111111]">Comprehensive GST Audit Dossier</h3>
           <p className="text-xs text-[#666666]">
             Structured audit working papers with cross-return reconciliations and analytical findings.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <Button
             variant="outline"
             size="sm"
             onClick={handleDownloadCsv}
-            className="flex items-center gap-1.5 cursor-pointer"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 cursor-pointer text-xs"
           >
-            <Download className="w-4 h-4" /> Download Exceptions CSV
+            <Download className="w-4 h-4" /> Download CSV
           </Button>
           <Button
             variant="primary"
             size="sm"
             onClick={handlePrint}
-            className="flex items-center gap-1.5 cursor-pointer"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 cursor-pointer text-xs"
           >
-            <Printer className="w-4 h-4" /> Print / Export PDF
+            <Printer className="w-4 h-4" /> Print / PDF
           </Button>
         </div>
       </div>
 
       {/* Printable Report Canvas */}
-      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-8 shadow-xs print:border-0 print:shadow-none print:p-0 space-y-8 text-[#111111]">
+      <div className="bg-white border border-[#E5E5E5] rounded-2xl p-4 sm:p-8 shadow-xs print:border-0 print:shadow-none print:p-0 space-y-8 text-[#111111]">
         {/* Header Title Section */}
         <div className="border-b-2 border-black pb-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <span className="text-[10px] font-mono font-bold tracking-widest text-[#666666] uppercase">
                 GST Repotis Analytical Suite
               </span>
-              <h1 className="text-2xl font-black tracking-tight text-[#111111] mt-0.5">
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-[#111111] mt-0.5">
                 GST AUDIT & RECONCILIATION DOSSIER
               </h1>
               <p className="text-xs text-[#666666] mt-1">
                 Formal Working Papers for Tax Review & Annual Reconciliation
               </p>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <span className="text-xs font-mono font-bold block">Status: {report.audit.status.toUpperCase()}</span>
               <span className="text-[11px] text-[#666666] block">
                 Generated: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -137,11 +137,11 @@ export const GstAuditReportTab: React.FC<GstAuditReportTabProps> = ({ audit }) =
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-[#FBFBFB] border border-[#EEEEEE] rounded-xl text-xs">
             <div>
               <span className="text-[10px] uppercase font-bold text-[#888888] block">Trade Name</span>
-              <span className="font-bold text-[#111111]">{report.client.trade_name}</span>
+              <span className="font-bold text-[#111111] truncate block">{report.client.trade_name}</span>
             </div>
             <div>
               <span className="text-[10px] uppercase font-bold text-[#888888] block">Legal Name</span>
-              <span className="font-medium text-[#333333]">{report.client.party_name}</span>
+              <span className="font-medium text-[#333333] truncate block">{report.client.party_name}</span>
             </div>
             <div>
               <span className="text-[10px] uppercase font-bold text-[#888888] block">GSTIN</span>
@@ -175,41 +175,43 @@ export const GstAuditReportTab: React.FC<GstAuditReportTabProps> = ({ audit }) =
           <h2 className="text-xs font-bold font-mono text-[#888888] uppercase tracking-wider mb-2 border-b border-[#E5E5E5] pb-1">
             02. Outward Supplies & GSTR-1 Reconciliation
           </h2>
-          <table className="w-full text-xs border border-[#E5E5E5] rounded-xl overflow-hidden text-left">
-            <thead className="bg-[#F7F7F7] font-bold text-[#666666] text-[11px]">
-              <tr>
-                <th className="py-2.5 px-3">Category</th>
-                <th className="py-2.5 px-3">Books (Sales Register)</th>
-                <th className="py-2.5 px-3">Reported in GSTR-1</th>
-                <th className="py-2.5 px-3">Variance / Exposure</th>
-                <th className="py-2.5 px-3">Analytical Remarks</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E5E5E5]">
-              <tr>
-                <td className="py-2.5 px-3 font-semibold">Taxable Turnover</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.books_taxable)}</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.gstr1_taxable)}</td>
-                <td className={`py-2.5 px-3 font-mono font-bold ${report.outward_supplies.taxable_difference !== 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                  {formatCurrency(report.outward_supplies.taxable_difference)}
-                </td>
-                <td className="py-2.5 px-3 text-[11px] text-[#666666]">
-                  {report.outward_supplies.taxable_difference === 0 ? 'Exact match' : 'Turnover variance identified'}
-                </td>
-              </tr>
-              <tr>
-                <td className="py-2.5 px-3 font-semibold">Output Tax (IGST+CGST+SGST)</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.books_tax)}</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.gstr1_tax)}</td>
-                <td className={`py-2.5 px-3 font-mono font-bold ${report.outward_supplies.tax_difference !== 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                  {formatCurrency(report.outward_supplies.tax_difference)}
-                </td>
-                <td className="py-2.5 px-3 text-[11px] text-[#666666]">
-                  {report.outward_supplies.tax_difference === 0 ? 'Taxes reconciled' : 'Review short/excess discharge in 3B'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border border-[#E5E5E5] rounded-xl overflow-hidden text-left">
+              <thead className="bg-[#F7F7F7] font-bold text-[#666666] text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Category</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Books (Sales Register)</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Reported in GSTR-1</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Variance / Exposure</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Analytical Remarks</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E5E5E5]">
+                <tr>
+                  <td className="py-2.5 px-3 font-semibold">Taxable Turnover</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.books_taxable)}</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.gstr1_taxable)}</td>
+                  <td className={`py-2.5 px-3 font-mono font-bold ${report.outward_supplies.taxable_difference !== 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {formatCurrency(report.outward_supplies.taxable_difference)}
+                  </td>
+                  <td className="py-2.5 px-3 text-[11px] text-[#666666]">
+                    {report.outward_supplies.taxable_difference === 0 ? 'Exact match' : 'Turnover variance identified'}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-semibold">Output Tax (IGST+CGST+SGST)</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.books_tax)}</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.outward_supplies.gstr1_tax)}</td>
+                  <td className={`py-2.5 px-3 font-mono font-bold ${report.outward_supplies.tax_difference !== 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {formatCurrency(report.outward_supplies.tax_difference)}
+                  </td>
+                  <td className="py-2.5 px-3 text-[11px] text-[#666666]">
+                    {report.outward_supplies.tax_difference === 0 ? 'Taxes reconciled' : 'Review short/excess discharge in 3B'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Section 9 & 10: Inward Supplies & GSTR-2B vs Purchase Reconciliation */}
@@ -217,43 +219,45 @@ export const GstAuditReportTab: React.FC<GstAuditReportTabProps> = ({ audit }) =
           <h2 className="text-xs font-bold font-mono text-[#888888] uppercase tracking-wider mb-2 border-b border-[#E5E5E5] pb-1">
             03. Input Tax Credit & GSTR-2B vs Purchase Reconciliation
           </h2>
-          <table className="w-full text-xs border border-[#E5E5E5] rounded-xl overflow-hidden text-left">
-            <thead className="bg-[#F7F7F7] font-bold text-[#666666] text-[11px]">
-              <tr>
-                <th className="py-2.5 px-3">Category</th>
-                <th className="py-2.5 px-3">Books (Purchase Register)</th>
-                <th className="py-2.5 px-3">Auto-Drafted in GSTR-2B</th>
-                <th className="py-2.5 px-3">Variance</th>
-                <th className="py-2.5 px-3">Analytical Remarks</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#E5E5E5]">
-              <tr>
-                <td className="py-2.5 px-3 font-semibold">Inward Taxable Value</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.purchase_taxable)}</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.gstr2b_taxable)}</td>
-                <td className="py-2.5 px-3 font-mono font-bold text-amber-600">
-                  {formatCurrency(report.inward_supplies.taxable_difference)}
-                </td>
-                <td className="py-2.5 px-3 text-[11px] text-[#666666]">
-                  Difference between booked purchases and 2B
-                </td>
-              </tr>
-              <tr>
-                <td className="py-2.5 px-3 font-semibold">Input Tax Credit (ITC)</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.purchase_tax)}</td>
-                <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.gstr2b_tax)}</td>
-                <td className={`py-2.5 px-3 font-mono font-bold ${report.inward_supplies.tax_difference > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                  {formatCurrency(report.inward_supplies.tax_difference)}
-                </td>
-                <td className="py-2.5 px-3 text-[11px] text-[#666666]">
-                  {report.inward_supplies.tax_difference > 0
-                    ? 'Requires follow-up with non-filing vendors'
-                    : 'Unclaimed 2B credit identified'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border border-[#E5E5E5] rounded-xl overflow-hidden text-left">
+              <thead className="bg-[#F7F7F7] font-bold text-[#666666] text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Category</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Books (Purchase Register)</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Auto-Drafted in GSTR-2B</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Variance</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Analytical Remarks</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E5E5E5]">
+                <tr>
+                  <td className="py-2.5 px-3 font-semibold">Inward Taxable Value</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.purchase_taxable)}</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.gstr2b_taxable)}</td>
+                  <td className="py-2.5 px-3 font-mono font-bold text-amber-600">
+                    {formatCurrency(report.inward_supplies.taxable_difference)}
+                  </td>
+                  <td className="py-2.5 px-3 text-[11px] text-[#666666]">
+                    Difference between booked purchases and 2B
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-semibold">Input Tax Credit (ITC)</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.purchase_tax)}</td>
+                  <td className="py-2.5 px-3 font-mono">{formatCurrency(report.inward_supplies.gstr2b_tax)}</td>
+                  <td className={`py-2.5 px-3 font-mono font-bold ${report.inward_supplies.tax_difference > 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                    {formatCurrency(report.inward_supplies.tax_difference)}
+                  </td>
+                  <td className="py-2.5 px-3 text-[11px] text-[#666666]">
+                    {report.inward_supplies.tax_difference > 0
+                      ? 'Requires follow-up with non-filing vendors'
+                      : 'Unclaimed 2B credit identified'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Section 17: Exceptions Breakdown */}
@@ -281,51 +285,53 @@ export const GstAuditReportTab: React.FC<GstAuditReportTabProps> = ({ audit }) =
           </div>
 
           {report.exception_items.length > 0 && (
-            <table className="w-full text-xs border border-[#E5E5E5] rounded-xl overflow-hidden text-left mt-2">
-              <thead className="bg-[#F7F7F7] font-bold text-[#666666] text-[11px]">
-                <tr>
-                  <th className="py-2 px-3">Rule Code</th>
-                  <th className="py-2 px-3">Severity</th>
-                  <th className="py-2 px-3">Reference / Doc</th>
-                  <th className="py-2 px-3">Description</th>
-                  <th className="py-2 px-3">Impact</th>
-                  <th className="py-2 px-3">CA Remarks</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E5E5E5]">
-                {report.exception_items.slice(0, 15).map((item, idx) => (
-                  <tr key={idx} className="hover:bg-[#FAFAFA]">
-                    <td className="py-2 px-3 font-mono font-bold text-[#111111]">{item.rule_code}</td>
-                    <td className="py-2 px-3">
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-800">
-                        {item.severity}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 font-mono">{item.record_reference || item.source}</td>
-                    <td className="py-2 px-3 max-w-xs">{item.description}</td>
-                    <td className="py-2 px-3 font-mono font-semibold">
-                      {item.financial_impact > 0 ? formatCurrency(item.financial_impact) : '—'}
-                    </td>
-                    <td className="py-2 px-3 text-[11px] italic text-[#555555]">
-                      {item.ca_remark || 'Pending CA review'}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border border-[#E5E5E5] rounded-xl overflow-hidden text-left mt-2">
+                <thead className="bg-[#F7F7F7] font-bold text-[#666666] text-[11px]">
+                  <tr>
+                    <th className="py-2 px-3 whitespace-nowrap">Rule Code</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Severity</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Reference / Doc</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Description</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Impact</th>
+                    <th className="py-2 px-3 whitespace-nowrap">CA Remarks</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[#E5E5E5]">
+                  {report.exception_items.slice(0, 15).map((item, idx) => (
+                    <tr key={idx} className="hover:bg-[#FAFAFA]">
+                      <td className="py-2 px-3 font-mono font-bold text-[#111111] whitespace-nowrap">{item.rule_code}</td>
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-800">
+                          {item.severity}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 font-mono whitespace-nowrap">{item.record_reference || item.source}</td>
+                      <td className="py-2 px-3 min-w-[200px]">{item.description}</td>
+                      <td className="py-2 px-3 font-mono font-semibold whitespace-nowrap">
+                        {item.financial_impact > 0 ? formatCurrency(item.financial_impact) : '—'}
+                      </td>
+                      <td className="py-2 px-3 text-[11px] italic text-[#555555] min-w-[150px]">
+                        {item.ca_remark || 'Pending CA review'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
         {/* Section 18 & 20: Sign-off & Audit Certification */}
-        <div className="pt-6 border-t border-[#E5E5E5] grid grid-cols-2 gap-8 text-xs">
+        <div className="pt-6 border-t border-[#E5E5E5] grid grid-cols-1 sm:grid-cols-2 gap-8 text-xs">
           <div className="space-y-4">
             <p className="font-bold text-[#111111]">Prepared By:</p>
             <div className="pt-8 border-b border-black w-48"></div>
             <p className="text-[11px] text-[#666666]">Tax Consultant / Audit Team</p>
           </div>
-          <div className="space-y-4 text-right">
+          <div className="space-y-4 sm:text-right">
             <p className="font-bold text-[#111111]">Chartered Accountant Final Review & Sign-Off:</p>
-            <div className="pt-8 border-b border-black w-48 ml-auto"></div>
+            <div className="pt-8 border-b border-black w-48 sm:ml-auto"></div>
             <p className="text-[11px] text-[#666666]">Partner / Proprietor / Membership No.</p>
           </div>
         </div>

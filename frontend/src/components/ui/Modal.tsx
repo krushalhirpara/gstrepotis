@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -17,6 +17,25 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = 'md',
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const widthStyles = {
@@ -30,23 +49,35 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+    >
       <div
-        className={`w-full bg-white rounded-2xl border border-[#E5E5E5] shadow-2xl overflow-hidden ${widthStyles[maxWidth]} my-8 animate-in zoom-in-95 duration-200`}
+        className={`w-full bg-white rounded-2xl border border-[#E5E5E5] shadow-2xl overflow-hidden ${widthStyles[maxWidth]} my-auto animate-in zoom-in-95 duration-200`}
       >
-        <div className="px-6 py-4 border-b border-[#E5E5E5] flex items-center justify-between bg-white">
-          <h3 className="text-base font-bold text-[#111111]">{title}</h3>
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[#E5E5E5] flex items-center justify-between bg-white sticky top-0 z-10">
+          <h3 className="text-sm sm:text-base font-bold text-[#111111] truncate pr-2">{title}</h3>
           <button
             onClick={onClose}
-            className="text-[#666666] hover:text-[#111111] p-1 rounded-lg hover:bg-[#F7F7F7] transition-colors cursor-pointer"
+            className="text-[#666666] hover:text-[#111111] p-2 rounded-lg hover:bg-[#F7F7F7] transition-colors cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center -mr-1"
+            aria-label="Close dialog"
           >
             ✕
           </button>
         </div>
 
-        <div className="p-6 max-h-[60vh] sm:max-h-[68vh] overflow-y-auto">{children}</div>
+        <div className="p-4 sm:p-6 max-h-[75vh] sm:max-h-[70vh] overflow-y-auto">{children}</div>
 
-        {footer && <div className="px-6 py-3.5 border-t border-[#E5E5E5] bg-[#F7F7F7] flex items-center justify-end gap-2">{footer}</div>}
+        {footer && (
+          <div className="px-4 sm:px-6 py-3 sm:py-3.5 border-t border-[#E5E5E5] bg-[#F7F7F7] flex flex-wrap items-center justify-end gap-2">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -57,24 +88,66 @@ interface DrawerProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
+  position?: 'left' | 'right';
 }
 
-export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children }) => {
+export const Drawer: React.FC<DrawerProps> = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  position = 'right',
+}) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
+  const isLeft = position === 'left';
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs">
-      <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col border-l border-[#E5E5E5] animate-in slide-in-from-right duration-200">
-        <div className="px-6 py-4 border-b border-[#E5E5E5] flex items-center justify-between">
-          <h3 className="text-base font-bold text-[#111111]">{title || 'Navigation'}</h3>
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className={`fixed inset-0 z-50 flex ${isLeft ? 'justify-start' : 'justify-end'} bg-black/50 backdrop-blur-xs animate-in fade-in duration-200`}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className={`w-full max-w-sm sm:max-w-md bg-white h-full shadow-2xl flex flex-col ${
+          isLeft ? 'border-r animate-in slide-in-from-left' : 'border-l animate-in slide-in-from-right'
+        } border-[#E5E5E5] duration-200`}
+      >
+        <div className="px-5 py-4 border-b border-[#E5E5E5] flex items-center justify-between bg-white">
+          <h3 className="text-sm sm:text-base font-bold text-[#111111] truncate pr-2">
+            {title || 'Navigation'}
+          </h3>
           <button
             onClick={onClose}
-            className="text-[#666666] hover:text-[#111111] p-1.5 rounded-lg hover:bg-[#F7F7F7] cursor-pointer"
+            className="text-[#666666] hover:text-[#111111] p-2 rounded-lg hover:bg-[#F7F7F7] cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center -mr-1"
+            aria-label="Close drawer"
           >
             ✕
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-6">{children}</div>
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>
     </div>
   );

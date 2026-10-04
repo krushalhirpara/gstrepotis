@@ -829,11 +829,11 @@ export const Home: React.FC = () => {
                 />
               )}
 
-              <div className="flex gap-3 pt-4 border-t border-[#E5E5E5]">
-                <Button variant="outline" className="w-1/2" onClick={() => setIsBankModalOpen(false)}>
+              <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3 pt-4 border-t border-[#E5E5E5]">
+                <Button variant="outline" className="w-full sm:w-1/2 text-xs" onClick={() => setIsBankModalOpen(false)}>
                   Cancel
                 </Button>
-                <Button variant="primary" className="w-1/2" onClick={handleStartExtraction}>
+                <Button variant="primary" className="w-full sm:w-1/2 text-xs" onClick={handleStartExtraction}>
                   Submit & Convert Statement
                 </Button>
               </div>
@@ -868,11 +868,11 @@ export const Home: React.FC = () => {
                   <span className="text-[10px] text-[#555555] uppercase block font-bold">CONVERSION COMPLETE</span>
                   <span className="font-bold text-sm text-black">Extracted {extractedTransactions.length} Transactions</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownloadCsv}>
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  <Button variant="outline" size="sm" className="flex-1 sm:flex-none text-xs" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownloadCsv}>
                     Download CSV
                   </Button>
-                  <Button variant="primary" size="sm" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownloadTallyXml}>
+                  <Button variant="primary" size="sm" className="flex-1 sm:flex-none text-xs" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleDownloadTallyXml}>
                     Generate Tally XML
                   </Button>
                 </div>
